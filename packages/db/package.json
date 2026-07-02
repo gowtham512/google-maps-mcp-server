@@ -12,13 +12,11 @@
     "db:studio": "prisma studio"
   },
   "dependencies": {
-    "@prisma/client": "^5.15.0"
-  },
-  "dependencies": {
     "@prisma/client": "^5.15.0",
     "prisma": "^5.15.0"
   },
   "devDependencies": {
+    "@types/node": "^20.14.0",
     "typescript": "^5.4.0"
   }
 }
