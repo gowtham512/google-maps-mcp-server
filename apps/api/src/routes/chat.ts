@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { createOllama } from "@ai-sdk/ollama";
-import { streamText } from "ai";
+import { createOllama } from "ollama-ai-provider-v2";
+import { generateText } from "ai";
 import { addMessage, getThread } from "@maps-agent/db";
 import { aiTools } from "../lib/ai-tools";
 
@@ -8,7 +8,9 @@ const router = Router();
 
 const ollama = createOllama({
   baseURL: process.env.OLLAMA_BASE_URL,
-  apiKey: process.env.OLLAMA_API_KEY,
+  headers: process.env.OLLAMA_API_KEY
+    ? { Authorization: `Bearer ${process.env.OLLAMA_API_KEY}` }
+    : undefined,
 });
 
 router.post("/chat", async (req, res) => {
@@ -32,9 +34,10 @@ router.post("/chat", async (req, res) => {
   }));
   messages.push({ role: "user", content: message });
 
-  const model = ollama(process.env.OLLAMA_MODEL ?? "llama3.2:latest");
+  const modelName = process.env.OLLAMA_MODEL ?? "llama3.2";
+  const model = ollama(modelName);
 
-  const result = streamText({
+  const result = await generateText({
     model,
     messages,
     tools: aiTools,
@@ -53,12 +56,10 @@ router.post("/chat", async (req, res) => {
       "  </Card>\n" +
       "  <Image src=\"https://maps.googleapis.com/maps/api/staticmap?center=Paris\"/ >\n" +
       "</Stack>",
-    maxToolRoundtrips: 5,
+    maxSteps: 5,
   });
 
-  // For now, collect the full response then save it and stream it to the client.
-  // In production, you would use toDataStreamResponse and save asynchronously.
-  const responseText = await result.text;
+  const responseText = result.text;
   await addMessage(threadId, "assistant", responseText);
 
   res.setHeader("Content-Type", "text/plain; charset=utf-8");

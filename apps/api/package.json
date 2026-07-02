@@ -2,6 +2,7 @@
   "name": "@maps-agent/api",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -10,14 +11,13 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/ollama": "^0.0.2",
     "@maps-agent/db": "workspace:*",
     "@maps-agent/maps-tools": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.0.4",
-    "ai": "^3.2.0",
+    "ai": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
     "express": "^4.19.0",
+    "ollama-ai-provider-v2": "^3.6.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {

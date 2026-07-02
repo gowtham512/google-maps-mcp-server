@@ -20,7 +20,7 @@ services:
   web:
     build: .
     container_name: maps-agent-web
-    command: node apps/web/server.js
+    command: node apps/web/.next/standalone/server.js
     ports:
       - "3001:3001"
     environment:
