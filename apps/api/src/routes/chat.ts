@@ -6,8 +6,10 @@ import { aiTools } from "../lib/ai-tools";
 
 const router = Router();
 
+const ollamaBaseUrl = (process.env.OLLAMA_BASE_URL ?? "https://ollama.com").replace(/\/v1\/?$/, "");
+
 const ollama = createOllama({
-  baseURL: process.env.OLLAMA_BASE_URL,
+  baseURL: ollamaBaseUrl,
   headers: process.env.OLLAMA_API_KEY
     ? { Authorization: `Bearer ${process.env.OLLAMA_API_KEY}` }
     : undefined,
