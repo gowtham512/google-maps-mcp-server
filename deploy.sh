@@ -2,15 +2,9 @@
 set -e
 
 APP_DIR="/opt/maps-agent"
-SERVICE_NAME="maps-agent"
-ENV_FILE="/etc/default/${SERVICE_NAME}"
 
-if [ -z "$GOOGLE_MAPS_API_KEY" ]; then
-  echo "Export GOOGLE_MAPS_API_KEY before running this script."
-  exit 1
-fi
-if [ -z "$OLLAMA_BASE_URL" ] || [ -z "$OLLAMA_API_KEY" ]; then
-  echo "Export OLLAMA_BASE_URL and OLLAMA_API_KEY before running this script."
+if [ ! -f ".env" ]; then
+  echo "Create a .env file in the project root with GOOGLE_MAPS_API_KEY, OLLAMA_BASE_URL, OLLAMA_API_KEY, OLLAMA_MODEL."
   exit 1
 fi
 
@@ -29,20 +23,12 @@ sudo mkdir -p "$APP_DIR"
 sudo rsync -a \
   --exclude='.env' --exclude='.git' --exclude='node_modules' --exclude='.next' --exclude='dist' --exclude='.claude' \
   "$(pwd)/" "$APP_DIR/"
-
-echo "==> Writing environment file"
-echo "GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}" | sudo tee "$ENV_FILE" >/dev/null
-echo "OLLAMA_BASE_URL=${OLLAMA_BASE_URL}" | sudo tee -a "$ENV_FILE" >/dev/null
-echo "OLLAMA_API_KEY=${OLLAMA_API_KEY}" | sudo tee -a "$ENV_FILE" >/dev/null
-echo "OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:latest}" | sudo tee -a "$ENV_FILE" >/dev/null
+sudo cp .env "$APP_DIR/.env"
 
 echo "==> Building and starting containers"
 cd "$APP_DIR"
-set -a
-source "$ENV_FILE"
-set +a
 sudo docker compose down || true
-sudo docker compose up -d --build
+sudo docker compose --env-file .env up -d --build
 
 PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 || hostname -I | awk '{print $1}')
 echo ""

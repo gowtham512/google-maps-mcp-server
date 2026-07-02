@@ -34,18 +34,31 @@ The assistant can respond with plain markdown or with OpenUI Lang markup. When t
 
 1. Open ports **22, 3000, 3001** in the Lightsail firewall.
 2. SSH into the instance and clone the repo.
-3. Export your keys and run the deploy script:
+3. Create a `.env` file in the project root:
 
 ```bash
-export GOOGLE_MAPS_API_KEY="your_key"
-export OLLAMA_BASE_URL="https://api.ollama.com/v1"
-export OLLAMA_API_KEY="your_ollama_key"
-export OLLAMA_MODEL="llama3.2:latest"
+cp .env.example .env
+# Edit .env
+```
+
+Required variables:
+
+```env
+GOOGLE_MAPS_API_KEY=your_key
+OLLAMA_BASE_URL=https://ollama.com
+OLLAMA_API_KEY=your_ollama_key
+OLLAMA_MODEL=kimi-k2.6:cloud
+DATABASE_URL=file:/data/maps-agent.db
+```
+
+4. Run:
+
+```bash
 chmod +x deploy.sh
 ./deploy.sh
 ```
 
-4. After deploy, the script prints:
+5. After deploy:
    - API health: `http://YOUR_IP:3000/health`
    - Web UI: `http://YOUR_IP:3001`
 
@@ -78,8 +91,9 @@ Set your keys in `.env` (copy from `.env.example`).
 | Variable            | Description                             |
 |---------------------|-----------------------------------------|
 | `GOOGLE_MAPS_API_KEY` | Google Maps Platform API key          |
-| `OLLAMA_BASE_URL`     | Cloud Ollama endpoint (OpenAI-compatible) |
+| `OLLAMA_BASE_URL`     | Cloud Ollama endpoint                 |
 | `OLLAMA_API_KEY`      | Ollama API key                        |
-| `OLLAMA_MODEL`        | Model name, e.g. `llama3.2:latest`    |
+| `OLLAMA_MODEL`        | Model name, e.g. `kimi-k2.6:cloud`    |
+| `DATABASE_URL`        | SQLite database path                  |
 
 > Google Maps Platform products may incur costs. Restrict your API key at https://docs.cloud.google.com/api-keys/docs/add-restrictions-api-keys.
