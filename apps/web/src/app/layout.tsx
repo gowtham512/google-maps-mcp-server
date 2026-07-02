@@ -1,4 +1,4 @@
-import "@openuidev/react-ui/styles/index.css";
+import "./globals.css";
 
 export const metadata = {
   title: "Maps Agent",
