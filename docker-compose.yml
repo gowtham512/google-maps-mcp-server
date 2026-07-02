@@ -2,7 +2,6 @@ services:
   api:
     build: .
     container_name: maps-agent-api
-    command: node apps/api/dist/index.js
     ports:
       - "3000:3000"
     environment:

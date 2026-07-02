@@ -3,10 +3,10 @@ import cors from "cors";
 import express from "express";
 import { prisma } from "@maps-agent/db";
 
-import chatRoutes from "./routes/chat";
-import healthRoutes from "./routes/health";
-import threadsRoutes from "./routes/threads";
-import toolsRoutes from "./routes/tools";
+import chatRoutes from "./routes/chat.js";
+import healthRoutes from "./routes/health.js";
+import threadsRoutes from "./routes/threads.js";
+import toolsRoutes from "./routes/tools.js";
 
 const app = express();
 const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;

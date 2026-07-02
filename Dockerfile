@@ -20,6 +20,9 @@ RUN pnpm install
 COPY . .
 
 RUN pnpm --filter db db:generate
+
+# Build web with the docker-compose API URL baked into rewrites
+ENV API_PROXY_URL=http://api:3000
 RUN pnpm build
 
 # Expose ports for API and web

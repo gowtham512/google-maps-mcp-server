@@ -2,7 +2,7 @@
 set -e
 
 echo "==> Running Prisma db push"
-cd packages/db
+cd /app/packages/db
 npx prisma db push --accept-data-loss
 
 cd /app

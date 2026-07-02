@@ -3,10 +3,11 @@ const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
   async rewrites() {
+    const apiUrl = process.env.API_PROXY_URL || "http://127.0.0.1:3000";
     return [
       {
         source: "/api/:path*",
-        destination: `${process.env.API_PROXY_URL || "http://127.0.0.1:3000"}/api/:path*`,
+        destination: `${apiUrl}/api/:path*`,
       },
     ];
   },
