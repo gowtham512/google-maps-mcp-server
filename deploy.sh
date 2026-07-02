@@ -1,82 +1,56 @@
 #!/bin/bash
 set -e
 
-SERVICE_NAME="google-maps-mcp"
-APP_DIR="/opt/google-maps-mcp"
-SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+APP_DIR="/opt/maps-agent"
+SERVICE_NAME="maps-agent"
 ENV_FILE="/etc/default/${SERVICE_NAME}"
 
 if [ -z "$GOOGLE_MAPS_API_KEY" ]; then
   echo "Export GOOGLE_MAPS_API_KEY before running this script."
   exit 1
 fi
-
-echo "==> Installing system packages"
-sudo apt-get update
-sudo apt-get install -y python3 python3-venv python3-pip git
-
-USE_HTTPS=false
-if [ -n "$DOMAIN" ]; then
-  USE_HTTPS=true
-  sudo apt-get install -y caddy
+if [ -z "$OLLAMA_BASE_URL" ] || [ -z "$OLLAMA_API_KEY" ]; then
+  echo "Export OLLAMA_BASE_URL and OLLAMA_API_KEY before running this script."
+  exit 1
 fi
+
+echo "==> Installing Docker"
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg git rsync
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 echo "==> Copying app to ${APP_DIR}"
 sudo mkdir -p "$APP_DIR"
 sudo rsync -a \
-  --exclude='.env' --exclude='.git' --exclude='__pycache__' --exclude='.claude' \
+  --exclude='.env' --exclude='.git' --exclude='node_modules' --exclude='.next' --exclude='dist' --exclude='.claude' \
   "$(pwd)/" "$APP_DIR/"
-
-echo "==> Installing Python dependencies"
-sudo python3 -m venv "$APP_DIR/venv"
-sudo "$APP_DIR/venv/bin/pip" install --upgrade pip
-sudo "$APP_DIR/venv/bin/pip" install -r "$APP_DIR/requirements.txt"
 
 echo "==> Writing environment file"
 echo "GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}" | sudo tee "$ENV_FILE" >/dev/null
-echo "MCP_TRANSPORT=sse" | sudo tee -a "$ENV_FILE" >/dev/null
+echo "OLLAMA_BASE_URL=${OLLAMA_BASE_URL}" | sudo tee -a "$ENV_FILE" >/dev/null
+echo "OLLAMA_API_KEY=${OLLAMA_API_KEY}" | sudo tee -a "$ENV_FILE" >/dev/null
+echo "OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:latest}" | sudo tee -a "$ENV_FILE" >/dev/null
 
-if [ "$USE_HTTPS" = true ]; then
-  echo "MCP_HOST=127.0.0.1" | sudo tee -a "$ENV_FILE" >/dev/null
-else
-  echo "MCP_HOST=0.0.0.0" | sudo tee -a "$ENV_FILE" >/dev/null
-fi
+echo "==> Building and starting containers"
+cd "$APP_DIR"
+set -a
+source "$ENV_FILE"
+set +a
+sudo docker compose down || true
+sudo docker compose up -d --build
 
-echo "MCP_PORT=3000" | sudo tee -a "$ENV_FILE" >/dev/null
-
-echo "==> Writing systemd service"
-sudo tee "$SERVICE_FILE" >/dev/null <<EOF
-[Unit]
-Description=Google Maps MCP Server
-After=network.target
-
-[Service]
-Type=simple
-User=root
-Group=root
-WorkingDirectory=${APP_DIR}
-EnvironmentFile=${ENV_FILE}
-ExecStart=${APP_DIR}/venv/bin/python ${APP_DIR}/server.py
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-echo "==> Starting MCP server"
-sudo systemctl daemon-reload
-sudo systemctl enable --now "$SERVICE_NAME"
-
-if [ "$USE_HTTPS" = true ]; then
-  echo "==> Writing Caddyfile"
-  sudo tee /etc/caddy/Caddyfile >/dev/null <<EOF
-${DOMAIN} {
-    reverse_proxy 127.0.0.1:3000
-}
-EOF
-  sudo systemctl restart caddy
-  echo "==> Done. MCP server is running at https://${DOMAIN}/sse"
-else
-  PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 || hostname -I | awk '{print $1}')
-  echo "==> Done. MCP server is running at http://${PUBLIC_IP}:3000/sse"
-fi
+PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 || hostname -I | awk '{print $1}')
+echo ""
+echo "==> Done."
+echo "    API:  http://${PUBLIC_IP}:3000/health"
+echo "    Web:  http://${PUBLIC_IP}:3001"
+echo ""
+echo "If you need HTTPS, run a Cloudflare tunnel:"
+echo "    nohup sudo cloudflared tunnel --url http://127.0.0.1:3001 > /tmp/tunnel.log 2>&1 &"
+echo "Then get the URL:"
+echo "    grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1"
