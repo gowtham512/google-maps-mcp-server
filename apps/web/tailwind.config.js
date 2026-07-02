@@ -1,7 +1,7 @@
 /** @type {import('tailwindcss').Config} */
-import openuiTailwind from "@openuidev/react-ui/tailwind";
+const openuiTailwind = require("@openuidev/react-ui/tailwind");
 
-export default {
+module.exports = {
   content: [
     "./src/**/*.{js,ts,jsx,tsx}",
     "./node_modules/@openuidev/react-ui/**/*.{js,ts,jsx,tsx}",
