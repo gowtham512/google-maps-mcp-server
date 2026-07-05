@@ -10,6 +10,9 @@ from maps_tools import compute_route, find_nearby_places, geocode_address, searc
 
 AVAILABLE_TOOLS = [search_places, geocode_address, compute_route, find_nearby_places]
 
+# Ollama client configured with the host from settings.
+_ollama_client = ollama.Client(host=settings.ollama_base_url)
+
 OPENUI_SYSTEM_PROMPT = (
     Path(__file__).with_name("openui_system_prompt.txt").read_text(encoding="utf-8")
 )
@@ -98,12 +101,11 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
     max_iterations = 5
 
     for _ in range(max_iterations):
-        response = ollama.chat(
+        response = _ollama_client.chat(
             model=settings.ollama_model,
             messages=context,
             tools=AVAILABLE_TOOLS,
             options={"temperature": 0.2},
-            host=settings.ollama_base_url,
         )
 
         assistant_message = response.message

@@ -13,7 +13,7 @@ async def test_run_agent_loop_no_tools(monkeypatch):
         "content": "Paris is beautiful in spring.",
     }
 
-    monkeypatch.setattr("agent.ollama.chat", lambda **kwargs: fake_response)
+    monkeypatch.setattr("agent._ollama_client.chat", lambda **kwargs: fake_response)
 
     result = await run_agent_loop("Tell me about Paris")
     assert result["reply"] == "Paris is beautiful in spring."
@@ -44,7 +44,7 @@ async def test_run_agent_loop_with_tool_call(monkeypatch):
 
     responses = [assistant_with_tool, assistant_final]
     monkeypatch.setattr(
-        "agent.ollama.chat", lambda **kwargs: MagicMock(message=responses.pop(0))
+        "agent._ollama_client.chat", lambda **kwargs: MagicMock(message=responses.pop(0))
     )
 
     monkeypatch.setattr("agent.search_places", AsyncMock(return_value="1. Hotel X\n2. Hotel Y"))
@@ -65,7 +65,7 @@ async def test_run_agent_loop_history_window(monkeypatch):
         captured_messages.append(list(kwargs["messages"]))
         return MagicMock(message={"role": "assistant", "content": "OK"})
 
-    monkeypatch.setattr("agent.ollama.chat", capture_chat)
+    monkeypatch.setattr("agent._ollama_client.chat", capture_chat)
 
     # Create 15 prior assistant messages
     long_history = [{"role": "assistant", "content": f"msg {i}"} for i in range(15)]
