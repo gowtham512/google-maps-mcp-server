@@ -64,3 +64,62 @@ export async function sendMessage(threadId: string, message: string): Promise<Ch
   if (!resp.ok) throw new Error("Failed to send message")
   return resp.json()
 }
+
+export interface StreamEvent {
+  type: "content" | "tool_call" | "tool_result" | "done"
+  delta?: string
+  name?: string
+  result?: string
+  reply?: string
+  openui_code?: string | null
+  tool_calls_used?: string[]
+}
+
+export async function sendMessageStream(
+  threadId: string,
+  message: string,
+  onEvent: (event: StreamEvent) => void,
+): Promise<void> {
+  const resp = await fetch(`${API_BASE}/threads/${threadId}/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify({ message }),
+  })
+  if (!resp.ok) throw new Error("Failed to send message")
+  if (!resp.body) throw new Error("No response body")
+
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let eventType = ""
+  let eventData = ""
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    const lines = buffer.split("\n")
+    buffer = lines.pop() || ""
+
+    for (const line of lines) {
+      if (line.startsWith("event:")) {
+        eventType = line.slice(6).trim()
+      } else if (line.startsWith("data:")) {
+        eventData = line.slice(5).trim()
+      } else if (line === "" && eventType && eventData) {
+        try {
+          const payload = JSON.parse(eventData) as StreamEvent
+          onEvent({ ...payload, type: eventType as StreamEvent["type"] })
+        } catch {
+          // ignore malformed events
+        }
+        eventType = ""
+        eventData = ""
+      }
+    }
+  }
+}

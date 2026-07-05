@@ -4,13 +4,14 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from agent import run_agent_loop
+from agent import run_agent_loop, run_agent_loop_stream
 from config import settings
 from db import close_db, get_session, init_db
 from models import Message, Thread
@@ -80,6 +81,38 @@ def _message_to_dict(msg: Message) -> dict[str, Any]:
     return data
 
 
+async def _persist_turn(thread_id: str, user_message: str, history: list[dict[str, Any]], messages: list[dict[str, Any]]):
+    """Persist the user message and new assistant/tool messages for a turn."""
+    async with get_session() as session:
+        thread_result = await session.exec(select(Thread).where(Thread.id == thread_id))
+        thread = thread_result.scalar_one_or_none()
+        if thread:
+            thread.updated_at = datetime.now(timezone.utc)
+
+        session.add(
+            Message(
+                thread_id=thread_id,
+                role="user",
+                content=user_message,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+
+        for msg in messages[len(history) :]:
+            if msg.get("role") == "user":
+                continue
+            db_msg = Message(
+                thread_id=thread_id,
+                role=msg.get("role", "assistant"),
+                content=msg.get("content"),
+                tool_name=msg.get("tool_name"),
+                tool_calls=json.dumps(msg.get("tool_calls")) if msg.get("tool_calls") else None,
+                openui_code=msg.get("openui_code") if msg.get("role") == "assistant" else None,
+                created_at=datetime.now(timezone.utc),
+            )
+            session.add(db_msg)
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -147,7 +180,7 @@ async def delete_thread(thread_id: str):
 
 
 @app.post("/threads/{thread_id}/chat", response_model=ChatResponse)
-async def chat(thread_id: str, req: ChatRequest):
+async def chat(thread_id: str, req: ChatRequest, accept: str = Header(default="")):
     async with get_session() as session:
         result = await session.exec(select(Thread).where(Thread.id == thread_id))
         thread = result.scalar_one_or_none()
@@ -160,41 +193,30 @@ async def chat(thread_id: str, req: ChatRequest):
         )
         history = [m.to_dict() for m in msg_result.scalars().all()]
 
-    # Run agent loop with 10-message window handled inside
-    result = await run_agent_loop(req.message, history)
+    if "text/event-stream" in accept:
+        async def sse_stream():
+            final_event: dict[str, Any] | None = None
+            async for event in run_agent_loop_stream(req.message, history):
+                if event["type"] == "done":
+                    final_event = event
+                yield f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
 
-    # Persist user message and agent responses
-    async with get_session() as session:
-        # Reload thread in this session so we can update its timestamp
-        thread_result = await session.exec(select(Thread).where(Thread.id == thread_id))
-        thread = thread_result.scalar_one_or_none()
-        if thread:
-            thread.updated_at = datetime.now(timezone.utc)
+            if final_event:
+                await _persist_turn(thread_id, req.message, history, final_event["messages"])
 
-        # User message
-        session.add(
-            Message(
-                thread_id=thread_id,
-                role="user",
-                content=req.message,
-                created_at=datetime.now(timezone.utc),
-            )
+        return StreamingResponse(
+            sse_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # disable nginx buffering for SSE
+            },
         )
 
-        # New assistant/tool messages returned from the loop
-        for msg in result["messages"][len(history) :]:
-            if msg.get("role") == "user":
-                continue  # already persisted above
-            db_msg = Message(
-                thread_id=thread_id,
-                role=msg.get("role", "assistant"),
-                content=msg.get("content"),
-                tool_name=msg.get("tool_name"),
-                tool_calls=json.dumps(msg.get("tool_calls")) if msg.get("tool_calls") else None,
-                openui_code=msg.get("openui_code") if msg.get("role") == "assistant" else None,
-                created_at=datetime.now(timezone.utc),
-            )
-            session.add(db_msg)
+    # Non-streaming fallback
+    result = await run_agent_loop(req.message, history)
+    await _persist_turn(thread_id, req.message, history, result["messages"])
 
     return ChatResponse(
         thread_id=thread_id,

@@ -5,15 +5,20 @@ import pytest
 from agent import _execute_tool, run_agent_loop
 
 
+def _make_stream(content: str, tool_calls: list | None = None):
+    """Create a fake streaming response iterable for the Ollama client."""
+    chunk = MagicMock()
+    chunk.message.content = content
+    chunk.message.tool_calls = tool_calls
+    return iter([chunk])
+
+
 @pytest.mark.asyncio
 async def test_run_agent_loop_no_tools(monkeypatch):
-    fake_response = MagicMock()
-    fake_response.message = {
-        "role": "assistant",
-        "content": "Paris is beautiful in spring.",
-    }
-
-    monkeypatch.setattr("agent._ollama_client.chat", lambda **kwargs: fake_response)
+    monkeypatch.setattr(
+        "agent._ollama_client.chat",
+        lambda **kwargs: _make_stream("Paris is beautiful in spring."),
+    )
 
     result = await run_agent_loop("Tell me about Paris")
     assert result["reply"] == "Paris is beautiful in spring."
@@ -25,27 +30,14 @@ async def test_run_agent_loop_no_tools(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_agent_loop_with_tool_call(monkeypatch):
-    assistant_with_tool = {
-        "role": "assistant",
-        "content": "",
-        "tool_calls": [
-            {
-                "function": {
-                    "name": "search_places",
-                    "arguments": {"text_query": "hotels in Paris", "region_code": "FR"},
-                }
-            }
-        ],
-    }
-    assistant_final = {
-        "role": "assistant",
-        "content": "Here are some hotels in Paris.",
-    }
-
-    responses = [assistant_with_tool, assistant_final]
-    monkeypatch.setattr(
-        "agent._ollama_client.chat", lambda **kwargs: MagicMock(message=responses.pop(0))
-    )
+    calls = [
+        _make_stream(
+            "",
+            [{"function": {"name": "search_places", "arguments": {"text_query": "hotels in Paris", "region_code": "FR"}}}],
+        ),
+        _make_stream("Here are some hotels in Paris."),
+    ]
+    monkeypatch.setattr("agent._ollama_client.chat", lambda **kwargs: calls.pop(0))
 
     monkeypatch.setattr("agent.search_places", AsyncMock(return_value="1. Hotel X\n2. Hotel Y"))
 
@@ -63,7 +55,7 @@ async def test_run_agent_loop_history_window(monkeypatch):
 
     def capture_chat(**kwargs):
         captured_messages.append(list(kwargs["messages"]))
-        return MagicMock(message={"role": "assistant", "content": "OK"})
+        return _make_stream("OK")
 
     monkeypatch.setattr("agent._ollama_client.chat", capture_chat)
 

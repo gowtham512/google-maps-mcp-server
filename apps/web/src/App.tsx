@@ -10,8 +10,9 @@ import {
   deleteThread,
   getThread,
   listThreads,
-  sendMessage,
+  sendMessageStream,
   type Message,
+  type StreamEvent,
   type Thread,
 } from "@/lib/api"
 
@@ -98,15 +99,51 @@ export default function App() {
     setLoading(true)
     setError(null)
 
-    // Optimistically add user message
+    // Optimistically add user message and a streaming assistant placeholder
     setMessages((prev) => [
       ...prev,
       { role: "user", content: userMessage, created_at: new Date().toISOString() },
+      { role: "assistant", content: "", created_at: new Date().toISOString() },
     ])
 
     try {
-      await sendMessage(activeThreadId, userMessage)
+      await sendMessageStream(activeThreadId, userMessage, (event: StreamEvent) => {
+        if (event.type === "content" && event.delta) {
+          setMessages((prev) => {
+            const next = [...prev]
+            const last = next[next.length - 1]
+            if (last && last.role === "assistant") {
+              last.content = (last.content || "") + event.delta
+            }
+            return next
+          })
+        } else if (event.type === "tool_call" && event.name) {
+          setMessages((prev) => {
+            const next = [...prev]
+            const last = next[next.length - 1]
+            if (last && last.role === "assistant") {
+              last.tool_name = event.name
+            }
+            return next
+          })
+        } else if (event.type === "done") {
+          setMessages((prev) => {
+            const next = [...prev]
+            const last = next[next.length - 1]
+            if (last && last.role === "assistant") {
+              last.openui_code = event.openui_code ?? null
+              if (event.openui_code) {
+                last.content = event.reply || last.content
+              }
+            }
+            return next
+          })
+        }
+      })
+
+      // Sync with persisted messages from the backend
       await loadThread(activeThreadId)
+      await loadThreads()
     } catch (err) {
       setError("Failed to send message")
       console.error(err)
@@ -184,19 +221,13 @@ export default function App() {
                           Tool: {msg.tool_name}
                         </div>
                       )}
+                      {msg.role === "assistant" && loading && !msg.content && !msg.openui_code && idx === messages.length - 1 && (
+                        <Loader2 className="mt-2 h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
                     </CardContent>
                   </Card>
                 </div>
               ))}
-              {loading && (
-                <div className="flex justify-start">
-                  <Card className="bg-card">
-                    <CardContent className="p-4">
-                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
               <div ref={messagesEndRef} />
             </div>
 
