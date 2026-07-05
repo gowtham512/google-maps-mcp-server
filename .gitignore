@@ -22,3 +22,8 @@ node_modules/
 .DS_Store
 .vscode/
 .idea/
+
+# Environment secrets — never commit
+.env
+.env.*
+
