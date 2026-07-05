@@ -27,17 +27,22 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
     """
     Run the Ollama tool-calling agent loop for a single user turn.
 
+    Only the most recent 10 messages plus the current user message are sent to the model
+    to keep context focused and reduce token usage.
+
     Returns:
         dict with:
             - reply: final assistant text
             - tool_calls_used: list of tool names invoked
-            - messages: full updated message history
+            - messages: full updated message history (including this turn)
     """
-    messages: list[dict[str, Any]] = list(message_history) if message_history else []
-    if not messages or messages[0].get("role") != "system":
-        messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
+    full_history: list[dict[str, Any]] = list(message_history) if message_history else []
 
-    messages.append({"role": "user", "content": user_message})
+    # Build the context window: system prompt + last 9 history turns + current user message = 10 messages
+    context: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    recent_history = full_history[-9:] if len(full_history) > 9 else full_history
+    context.extend(recent_history)
+    context.append({"role": "user", "content": user_message})
 
     tool_calls_used: list[str] = []
     max_iterations = 5
@@ -45,14 +50,14 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
     for _ in range(max_iterations):
         response = ollama.chat(
             model=settings.ollama_model,
-            messages=messages,
+            messages=context,
             tools=AVAILABLE_TOOLS,
             options={"temperature": 0.2},
             host=settings.ollama_base_url,
         )
 
         assistant_message = response.message
-        messages.append(assistant_message)
+        context.append(assistant_message)
 
         # Handle both SDK object and plain dict shapes (useful for mocking/tests)
         if isinstance(assistant_message, dict):
@@ -73,7 +78,7 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
             arguments = call.function.arguments or {}
 
             tool_result = await _execute_tool(tool_name, arguments)
-            messages.append(
+            context.append(
                 {
                     "role": "tool",
                     "tool_name": tool_name,
@@ -82,21 +87,26 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
             )
     else:
         # Hit max iterations without a final answer
-        messages.append(
+        context.append(
             {
                 "role": "assistant",
                 "content": "I made several tool calls but couldn't finalize a response. Please try rephrasing your request.",
             }
         )
 
-    final_message = messages[-1]
+    # Collect only the new assistant/tool/turn messages to add to full history
+    # The new turn starts after the recent_history slice + the user message
+    new_messages = context[len(recent_history) + 1 :]  # skip system + recent_history + current user
+
+    full_history.extend(new_messages)
+
+    final_message = new_messages[-1] if new_messages else {"role": "assistant", "content": ""}
     reply = final_message.get("content", "") if isinstance(final_message, dict) else getattr(final_message, "content", "")
 
-    # Remove system message from returned history so callers see only user/assistant/tool turns
     return {
         "reply": reply,
         "tool_calls_used": list(dict.fromkeys(tool_calls_used)),
-        "messages": [m for m in messages if m.get("role") != "system"],
+        "messages": full_history,
     }
 
 

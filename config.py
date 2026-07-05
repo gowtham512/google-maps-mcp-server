@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     maps_api_base_url_routes: str = "https://routes.googleapis.com/directions/v2"
     maps_api_base_url_geocoding: str = "https://maps.googleapis.com/maps/api/geocode/json"
 
+    database_url: str = "sqlite+aiosqlite:///./travel_agent.db"
+
     port: int = 8000
 
 

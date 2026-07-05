@@ -1,14 +1,16 @@
-# Travel Planner Agent
+# Travel Planner Chat Agent
 
 A Python-based travel planning AI agent powered by **Ollama Cloud** LLMs and **Google Maps Platform REST APIs**.
 
 ## How it works
 
-1. User sends a message via `POST /chat`.
-2. The agent calls an Ollama Cloud model with a set of Google Maps tools.
-3. The model decides which tools to call (search places, geocode, route, find nearby).
-4. Tool results are fed back to the model in a loop until a final travel plan is produced.
-5. Conversation history is stored in memory per `thread_id` (replaceable with a real DB later).
+1. Create a chat thread via `POST /threads`.
+2. Send messages via `POST /threads/{thread_id}/chat`.
+3. The agent calls an Ollama Cloud model with a set of Google Maps tools.
+4. The model decides which tools to call (search places, geocode, route, find nearby).
+5. Tool results are fed back to the model in a loop until a final travel plan is produced.
+6. Only the **most recent 10 messages** are sent to the model on each turn.
+7. All messages are persisted in **SQLite** (replaceable with your DB URL later).
 
 ## Setup
 
@@ -17,6 +19,7 @@ A Python-based travel planning AI agent powered by **Ollama Cloud** LLMs and **G
    OLLAMA_API_KEY=your_ollama_api_key
    OLLAMA_MODEL=qwen3
    MAPS_API_KEY=your_google_maps_api_key
+   DATABASE_URL=sqlite+aiosqlite:///./travel_agent.db
    ```
 
 2. Enable these APIs in the Google Cloud Console for your project:
@@ -41,21 +44,33 @@ A Python-based travel planning AI agent powered by **Ollama Cloud** LLMs and **G
 curl http://localhost:8000/health
 ```
 
+### Create thread
+```bash
+curl -X POST http://localhost:8000/threads \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Paris Trip"}'
+```
+
+### List threads
+```bash
+curl http://localhost:8000/threads
+```
+
 ### Chat
 ```bash
-curl -X POST http://localhost:8000/chat \
+curl -X POST http://localhost:8000/threads/{thread_id}/chat \
   -H "Content-Type: application/json" \
-  -d '{"thread_id":"trip-1","message":"Plan a 2-day trip to Paris with hotels and restaurants"}'
+  -d '{"message":"Plan a 2-day trip to Paris with hotels and restaurants"}'
 ```
 
 ### Get thread history
 ```bash
-curl http://localhost:8000/threads/trip-1
+curl http://localhost:8000/threads/{thread_id}
 ```
 
-### Reset thread
+### Delete thread
 ```bash
-curl -X POST http://localhost:8000/threads/trip-1/reset
+curl -X DELETE http://localhost:8000/threads/{thread_id}
 ```
 
 ## Tools exposed to the LLM
