@@ -19,13 +19,34 @@ OPENUI_SYSTEM_PROMPT = (
 SYSTEM_PROMPT = f"""\
 {OPENUI_SYSTEM_PROMPT}
 
-You are also a helpful travel planning assistant. You have access to Google Maps tools to help users plan trips.
+You are also a helpful travel planning assistant. You have access to Google Maps Platform tools through a server-side proxy to plan trips.
 
 Available tools:
-1. search_places - Search for places, businesses, addresses, or points of interest.
-2. geocode_address - Convert an address to coordinates and place ID.
-3. compute_route - Compute driving or walking routes between two addresses.
-4. find_nearby_places - Find places of a specific type near an address (e.g., hotels, restaurants, gas stations).
+1. search_places(text_query, region_code="US")
+   - Search for places, businesses, addresses, or points of interest.
+   - region_code: ISO 3166-1 alpha-2 country code (e.g. "US", "FR", "IN", "GB").
+
+2. geocode_address(address, region_code="US")
+   - Convert an address to latitude/longitude coordinates and a place ID.
+   - region_code: ISO 3166-1 alpha-2 country code used to bias results.
+
+3. compute_route(origin_address, destination_address, travel_mode="DRIVE")
+   - Compute a route between two addresses using the Google Routes API.
+   - travel_mode MUST be one of the exact enum values: DRIVE, WALK, BICYCLE, TRANSIT, TWO_WHEELER.
+     Do NOT use aliases like "driving", "walking", "car", "bike", "public transport", etc.
+   - Both origin_address and destination_address must be non-empty.
+
+4. find_nearby_places(location_address, place_type, radius_meters=5000, region_code="US")
+   - Find places of a specific type near an address.
+   - place_type must be a single Google Maps place type, e.g. "restaurant", "hotel",
+     "gas_station", "cafe", "tourist_attraction", "museum", "shopping_mall".
+   - radius_meters is the search radius in meters (default 5000).
+   - region_code: ISO 3166-1 alpha-2 country code used to bias geocoding.
+
+Rules for tool calls:
+- Use the exact enum values documented above; the backend validates them and rejects aliases.
+- For compute_route, always provide clear origin and destination addresses.
+- For find_nearby_places, prefer place types from the official list such as restaurant, hotel, gas_station, cafe, tourist_attraction, museum, shopping_mall, park.
 
 You can make multiple tool calls in a loop until you have enough information to answer the user's request.
 When you have a final answer, output it as valid openui-lang code using Cards, TextContent, Tables, Lists, etc.
@@ -96,18 +117,18 @@ def _build_message_from_response(message: Any) -> dict[str, Any]:
     }
 
 
-async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+async def run_agent_loop_stream(
+    user_message: str,
+    message_history: list[dict[str, Any]] | None = None,
+):
     """
-    Run the Ollama tool-calling agent loop for a single user turn.
+    Stream the Ollama tool-calling agent loop.
 
-    Only the most recent 10 messages plus the current user message are sent to the model
-    to keep context focused and reduce token usage.
-
-    Returns:
-        dict with:
-            - reply: final assistant text
-            - tool_calls_used: list of tool names invoked
-            - messages: full updated message history (including this turn)
+    Yields SSE-style events:
+        {"type": "content", "delta": str}
+        {"type": "tool_call", "name": str}
+        {"type": "tool_result", "name": str, "result": str}
+        {"type": "done", "reply": str, "openui_code": str, "tool_calls_used": list[str], "messages": list[dict]}
     """
     full_history: list[dict[str, Any]] = list(message_history) if message_history else []
 
@@ -118,25 +139,42 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
     context.append({"role": "user", "content": user_message})
 
     tool_calls_used: list[str] = []
-    max_iterations = 5
+    max_iterations = 10
 
     for _ in range(max_iterations):
-        response = _ollama_client.chat(
+        stream = _ollama_client.chat(
             model=settings.ollama_model,
             messages=context,
             tools=AVAILABLE_TOOLS,
             options={"temperature": 0.2},
-            think=True,
+            stream=True,
         )
 
-        assistant_message = _build_message_from_response(response.message)
+        accumulated_content = ""
+        accumulated_tool_calls: list[Any] = []
+
+        for chunk in stream:
+            chunk_message = getattr(chunk, "message", None)
+            delta = getattr(chunk_message, "content", None) or ""
+            if delta:
+                accumulated_content += delta
+                yield {"type": "content", "delta": delta}
+
+            chunk_tool_calls = getattr(chunk_message, "tool_calls", None)
+            if chunk_tool_calls:
+                accumulated_tool_calls.extend(chunk_tool_calls)
+
+        assistant_message = {
+            "role": "assistant",
+            "content": accumulated_content,
+            "tool_calls": accumulated_tool_calls,
+        }
         context.append(assistant_message)
 
-        tool_calls = assistant_message.get("tool_calls") or []
-        if not tool_calls:
+        if not accumulated_tool_calls:
             break
 
-        for call in tool_calls:
+        for call in accumulated_tool_calls:
             if isinstance(call, dict):
                 fn = call.get("function", {})
                 tool_name = fn.get("name", "")
@@ -144,27 +182,28 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
             else:
                 tool_name = call.function.name
                 arguments = call.function.arguments or {}
-            tool_calls_used.append(tool_name)
 
-            tool_result = await _execute_tool(tool_name, arguments)
-            context.append(
-                {
-                    "role": "tool",
-                    "tool_name": tool_name,
-                    "content": str(tool_result),
-                }
-            )
+            if tool_name:
+                tool_calls_used.append(tool_name)
+                yield {"type": "tool_call", "name": tool_name}
+
+                tool_result = await _execute_tool(tool_name, arguments)
+                yield {"type": "tool_result", "name": tool_name, "result": str(tool_result)}
+
+                context.append(
+                    {
+                        "role": "tool",
+                        "tool_name": tool_name,
+                        "content": str(tool_result),
+                    }
+                )
     else:
         # Hit max iterations without a final answer
-        context.append(
-            {
-                "role": "assistant",
-                "content": "I made several tool calls but couldn't finalize a response. Please try rephrasing your request.",
-            }
-        )
+        fallback = "I made several tool calls but couldn't finalize a response. Please try rephrasing your request."
+        context.append({"role": "assistant", "content": fallback})
+        yield {"type": "content", "delta": fallback}
 
     # Collect only the new assistant/tool/turn messages to add to full history
-    # The new turn starts after the recent_history slice + the user message
     new_messages = context[len(recent_history) + 1 :]  # skip system + recent_history + current user
 
     full_history.extend(new_messages)
@@ -176,7 +215,8 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
     openui_code = reply if looks_like_openui(reply) else render_openui_fallback(reply, tool_calls_used)
     final_message["openui_code"] = openui_code
 
-    return {
+    yield {
+        "type": "done",
         "reply": reply,
         "openui_code": openui_code,
         "tool_calls_used": list(dict.fromkeys(tool_calls_used)),
@@ -184,27 +224,58 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
     }
 
 
+async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Non-streaming wrapper around run_agent_loop_stream."""
+    result: dict[str, Any] | None = None
+    async for event in run_agent_loop_stream(user_message, message_history):
+        if event["type"] == "done":
+            result = {
+                "reply": event["reply"],
+                "openui_code": event["openui_code"],
+                "tool_calls_used": event["tool_calls_used"],
+                "messages": event["messages"],
+            }
+    if result is None:
+        return {
+            "reply": "",
+            "openui_code": None,
+            "tool_calls_used": [],
+            "messages": list(message_history) if message_history else [],
+        }
+    return result
+
+
 async def _execute_tool(tool_name: str, arguments: dict[str, Any]) -> str:
-    if tool_name == "search_places":
-        return await search_places(
-            text_query=arguments.get("text_query", ""),
-            region_code=arguments.get("region_code", "US"),
-        )
-    if tool_name == "geocode_address":
-        return await geocode_address(
-            address=arguments.get("address", ""),
-            region_code=arguments.get("region_code", "US"),
-        )
-    if tool_name == "compute_route":
-        return await compute_route(
-            origin_address=arguments.get("origin_address", ""),
-            destination_address=arguments.get("destination_address", ""),
-            travel_mode=arguments.get("travel_mode", "DRIVE"),
-        )
-    if tool_name == "find_nearby_places":
-        return await find_nearby_places(
-            location_address=arguments.get("location_address", ""),
-            place_type=arguments.get("place_type", "restaurant"),
-            radius_meters=int(arguments.get("radius_meters", 5000)),
-        )
-    return f"Unknown tool: {tool_name}"
+    """Run a Google Maps tool and return its output, or the error message on failure.
+
+    Tool failures are returned as text (not raised) so the model can see the
+    problem and recover instead of crashing the chat request.
+    """
+    try:
+        if tool_name == "search_places":
+            return await search_places(
+                text_query=arguments.get("text_query", ""),
+                region_code=arguments.get("region_code", "US"),
+            )
+        if tool_name == "geocode_address":
+            return await geocode_address(
+                address=arguments.get("address", ""),
+                region_code=arguments.get("region_code", "US"),
+            )
+        if tool_name == "compute_route":
+            return await compute_route(
+                origin_address=arguments.get("origin_address", ""),
+                destination_address=arguments.get("destination_address", ""),
+                travel_mode=arguments.get("travel_mode", "DRIVE"),
+            )
+        if tool_name == "find_nearby_places":
+            return await find_nearby_places(
+                location_address=arguments.get("location_address", ""),
+                place_type=arguments.get("place_type", "restaurant"),
+                radius_meters=int(arguments.get("radius_meters", 5000)),
+                region_code=arguments.get("region_code", "US"),
+            )
+        return f"Unknown tool: {tool_name}"
+    except Exception as exc:  # noqa: BLE001 - tool errors must be surfaced to the model
+        error_msg = f"Tool '{tool_name}' failed: {type(exc).__name__}: {exc}"
+        return error_msg
