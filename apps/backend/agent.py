@@ -158,7 +158,9 @@ async def run_agent_loop_stream(
 
     tool_calls_used: list[str] = []
     max_iterations = 10
-    force_answer_after = 7  # After this many tool rounds, insist on a final answer.
+    max_tool_calls_per_turn = 25  # Hard cap on total tool invocations.
+    force_answer_after = 5  # After this many rounds, insist on a final answer.
+    executed_tool_count = 0
 
     for iteration in range(max_iterations):
         stream = _ollama_client.chat(
@@ -203,6 +205,24 @@ async def run_agent_loop_stream(
                 arguments = call.function.arguments or {}
 
             if tool_name:
+                executed_tool_count += 1
+                if executed_tool_count > max_tool_calls_per_turn:
+                    skipped = (
+                        f"Tool '{tool_name}' was skipped: the per-turn tool limit "
+                        f"of {max_tool_calls_per_turn} has been reached. "
+                        "Use the information already gathered to answer."
+                    )
+                    yield {"type": "tool_call", "name": tool_name}
+                    yield {"type": "tool_result", "name": tool_name, "result": skipped}
+                    context.append(
+                        {
+                            "role": "tool",
+                            "tool_name": tool_name,
+                            "content": skipped,
+                        }
+                    )
+                    continue
+
                 tool_calls_used.append(tool_name)
                 yield {"type": "tool_call", "name": tool_name}
 
@@ -218,7 +238,7 @@ async def run_agent_loop_stream(
                 )
 
         # If the model has already used many tool rounds, remind it to answer now.
-        if iteration >= force_answer_after - 1:
+        if iteration >= force_answer_after - 1 or executed_tool_count >= max_tool_calls_per_turn:
             context.append(
                 {
                     "role": "system",
