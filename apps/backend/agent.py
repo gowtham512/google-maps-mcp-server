@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +31,12 @@ You can make multiple tool calls in a loop until you have enough information to 
 When you have a final answer, output it as valid openui-lang code using Cards, TextContent, Tables, Lists, etc.
 If you cannot produce valid openui-lang, output a plain text explanation and the system will wrap it for you.
 """
+
+
+def _sanitize_for_ollama(msg: dict[str, Any]) -> dict[str, Any]:
+    """Remove fields Ollama does not expect from a message before sending it back."""
+    allowed = {"role", "content", "tool_calls", "tool_name", "images"}
+    return {k: v for k, v in msg.items() if k in allowed}
 
 
 def _escape_openui(text: str) -> str:
@@ -76,6 +81,21 @@ def looks_like_openui(code: str) -> bool:
     return bool(code.strip()) and "root = Stack(" in code
 
 
+def _build_message_from_response(message: Any) -> dict[str, Any]:
+    """Build a plain dict from an Ollama SDK response.message object or dict."""
+    if isinstance(message, dict):
+        return {
+            "role": message.get("role", "assistant"),
+            "content": message.get("content", "") or "",
+            "tool_calls": message.get("tool_calls"),
+        }
+    return {
+        "role": getattr(message, "role", "assistant"),
+        "content": getattr(message, "content", "") or "",
+        "tool_calls": getattr(message, "tool_calls", None),
+    }
+
+
 async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """
     Run the Ollama tool-calling agent loop for a single user turn.
@@ -94,7 +114,7 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
     # Build the context window: system prompt + last 9 history turns + current user message = 10 messages
     context: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
     recent_history = full_history[-9:] if len(full_history) > 9 else full_history
-    context.extend(recent_history)
+    context.extend(_sanitize_for_ollama(m) for m in recent_history)
     context.append({"role": "user", "content": user_message})
 
     tool_calls_used: list[str] = []
@@ -106,28 +126,25 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
             messages=context,
             tools=AVAILABLE_TOOLS,
             options={"temperature": 0.2},
+            think=True,
         )
 
-        assistant_message = response.message
+        assistant_message = _build_message_from_response(response.message)
         context.append(assistant_message)
 
-        # Handle both SDK object and plain dict shapes (useful for mocking/tests)
-        if isinstance(assistant_message, dict):
-            calls = assistant_message.get("tool_calls") or []
-            if calls:
-                calls = [
-                    type("Call", (), {"function": type("Fn", (), {"name": c.get("function", {}).get("name"), "arguments": c.get("function", {}).get("arguments", {})})()})
-                    for c in calls
-                ]
-        else:
-            calls = assistant_message.tool_calls
-        if not calls:
+        tool_calls = assistant_message.get("tool_calls") or []
+        if not tool_calls:
             break
 
-        for call in calls:
-            tool_name = call.function.name
+        for call in tool_calls:
+            if isinstance(call, dict):
+                fn = call.get("function", {})
+                tool_name = fn.get("name", "")
+                arguments = fn.get("arguments", {}) or {}
+            else:
+                tool_name = call.function.name
+                arguments = call.function.arguments or {}
             tool_calls_used.append(tool_name)
-            arguments = call.function.arguments or {}
 
             tool_result = await _execute_tool(tool_name, arguments)
             context.append(
@@ -153,15 +170,11 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
     full_history.extend(new_messages)
 
     final_message = new_messages[-1] if new_messages else {"role": "assistant", "content": ""}
-    reply = final_message.get("content", "") if isinstance(final_message, dict) else getattr(final_message, "content", "")
+    reply = final_message.get("content", "")
 
     # Treat the final reply as openui-lang if it looks like it; otherwise wrap it.
     openui_code = reply if looks_like_openui(reply) else render_openui_fallback(reply, tool_calls_used)
-    # Ensure the final assistant message carries the openui code for persistence
-    if isinstance(final_message, dict):
-        final_message["openui_code"] = openui_code
-    else:
-        setattr(final_message, "openui_code", openui_code)
+    final_message["openui_code"] = openui_code
 
     return {
         "reply": reply,
