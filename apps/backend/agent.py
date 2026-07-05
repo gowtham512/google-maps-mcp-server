@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Any
 
 import ollama
@@ -9,8 +10,14 @@ from maps_tools import compute_route, find_nearby_places, geocode_address, searc
 
 AVAILABLE_TOOLS = [search_places, geocode_address, compute_route, find_nearby_places]
 
-SYSTEM_PROMPT = """\
-You are a helpful travel planning assistant. You have access to Google Maps tools to help users plan trips.
+OPENUI_SYSTEM_PROMPT = (
+    Path(__file__).with_name("openui_system_prompt.txt").read_text(encoding="utf-8")
+)
+
+SYSTEM_PROMPT = f"""\
+{OPENUI_SYSTEM_PROMPT}
+
+You are also a helpful travel planning assistant. You have access to Google Maps tools to help users plan trips.
 
 Available tools:
 1. search_places - Search for places, businesses, addresses, or points of interest.
@@ -19,35 +26,51 @@ Available tools:
 4. find_nearby_places - Find places of a specific type near an address (e.g., hotels, restaurants, gas stations).
 
 You can make multiple tool calls in a loop until you have enough information to answer the user's request.
-When you have a final answer, respond directly to the user with a clear, concise travel plan.
-"""
-
-OPENUI_CARD_TEMPLATE = """\
-<Card>
-  <CardHeader>
-    <CardTitle>Travel Plan</CardTitle>
-  </CardHeader>
-  <CardContent>
-    <Text>{reply}</Text>
-{tools_block}
-  </CardContent>
-</Card>
+When you have a final answer, output it as valid openui-lang code using Cards, TextContent, Tables, Lists, etc.
+If you cannot produce valid openui-lang, output a plain text explanation and the system will wrap it for you.
 """
 
 
 def _escape_openui(text: str) -> str:
     """Escape characters that break OpenUI Lang rendering."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return (
+        text.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
 
 
-def render_openui(reply: str, tool_calls_used: list[str]) -> str:
-    """Convert the final assistant reply into an OpenUI Lang code block."""
+def render_openui_fallback(reply: str, tool_calls_used: list[str]) -> str:
+    """Convert plain text into a minimal openui-lang program for safe rendering."""
     reply_safe = _escape_openui(reply)
-    tools_block = ""
+    tool_lines = ""
+    tool_children = ""
     if tool_calls_used:
-        items = "\n".join(f"    <Badge>{name}</Badge>" for name in tool_calls_used)
-        tools_block = f"    <Flex wrap=\"true\" gap=\"2\">\n      <Text>Tools used:</Text>\n{items}\n    </Flex>"
-    return OPENUI_CARD_TEMPLATE.format(reply=reply_safe, tools_block=tools_block)
+        tool_items = "\n".join(
+            f'  tool_{i} = TextContent("  • {name}", "small")'
+            for i, name in enumerate(tool_calls_used)
+        )
+        tool_refs = ", ".join(f"tool_{i}" for i in range(len(tool_calls_used)))
+        tool_lines = f"""\
+tools_header = TextContent("Tools used:", "small")
+{tool_items}
+tools_stack = Stack([tools_header, {tool_refs}], "column", "xs")
+"""
+        tool_children = ", tools_stack"
+    code = f"""\
+root = Stack([card], "column", "m")
+card = Card([title, body{tool_children}])
+title = CardHeader("Travel Plan")
+body = TextContent("{reply_safe}", "default")
+{tool_lines}""".strip()
+    return code
+
+
+def looks_like_openui(code: str) -> bool:
+    """Heuristic check for valid openui-lang shape."""
+    return bool(code.strip()) and "root = Stack(" in code
 
 
 async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -130,7 +153,13 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
     final_message = new_messages[-1] if new_messages else {"role": "assistant", "content": ""}
     reply = final_message.get("content", "") if isinstance(final_message, dict) else getattr(final_message, "content", "")
 
-    openui_code = render_openui(reply, tool_calls_used)
+    # Treat the final reply as openui-lang if it looks like it; otherwise wrap it.
+    openui_code = reply if looks_like_openui(reply) else render_openui_fallback(reply, tool_calls_used)
+    # Ensure the final assistant message carries the openui code for persistence
+    if isinstance(final_message, dict):
+        final_message["openui_code"] = openui_code
+    else:
+        setattr(final_message, "openui_code", openui_code)
 
     return {
         "reply": reply,
