@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -22,6 +23,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     thread_id: str
     reply: str
+    openui_code: str | None = None
     tool_calls_used: list[str]
 
 
@@ -41,6 +43,7 @@ class MessageOut(BaseModel):
     content: str | None = None
     tool_name: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
+    openui_code: str | None = None
     created_at: datetime
 
 
@@ -53,6 +56,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Travel Planner Chat Agent", lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 def _message_to_dict(msg: Message) -> dict[str, Any]:
     data: dict[str, Any] = {
@@ -64,6 +75,8 @@ def _message_to_dict(msg: Message) -> dict[str, Any]:
         data["tool_name"] = msg.tool_name
     if msg.tool_calls:
         data["tool_calls"] = json.loads(msg.tool_calls)
+    if msg.openui_code:
+        data["openui_code"] = msg.openui_code
     return data
 
 
@@ -178,6 +191,7 @@ async def chat(thread_id: str, req: ChatRequest):
                 content=msg.get("content"),
                 tool_name=msg.get("tool_name"),
                 tool_calls=json.dumps(msg.get("tool_calls")) if msg.get("tool_calls") else None,
+                openui_code=msg.get("openui_code") if msg.get("role") == "assistant" else None,
                 created_at=datetime.now(timezone.utc),
             )
             session.add(db_msg)
@@ -185,6 +199,7 @@ async def chat(thread_id: str, req: ChatRequest):
     return ChatResponse(
         thread_id=thread_id,
         reply=result["reply"],
+        openui_code=result.get("openui_code"),
         tool_calls_used=result["tool_calls_used"],
     )
 

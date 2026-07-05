@@ -22,6 +22,33 @@ You can make multiple tool calls in a loop until you have enough information to 
 When you have a final answer, respond directly to the user with a clear, concise travel plan.
 """
 
+OPENUI_CARD_TEMPLATE = """\
+<Card>
+  <CardHeader>
+    <CardTitle>Travel Plan</CardTitle>
+  </CardHeader>
+  <CardContent>
+    <Text>{reply}</Text>
+{tools_block}
+  </CardContent>
+</Card>
+"""
+
+
+def _escape_openui(text: str) -> str:
+    """Escape characters that break OpenUI Lang rendering."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def render_openui(reply: str, tool_calls_used: list[str]) -> str:
+    """Convert the final assistant reply into an OpenUI Lang code block."""
+    reply_safe = _escape_openui(reply)
+    tools_block = ""
+    if tool_calls_used:
+        items = "\n".join(f"    <Badge>{name}</Badge>" for name in tool_calls_used)
+        tools_block = f"    <Flex wrap=\"true\" gap=\"2\">\n      <Text>Tools used:</Text>\n{items}\n    </Flex>"
+    return OPENUI_CARD_TEMPLATE.format(reply=reply_safe, tools_block=tools_block)
+
 
 async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """
@@ -103,8 +130,11 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
     final_message = new_messages[-1] if new_messages else {"role": "assistant", "content": ""}
     reply = final_message.get("content", "") if isinstance(final_message, dict) else getattr(final_message, "content", "")
 
+    openui_code = render_openui(reply, tool_calls_used)
+
     return {
         "reply": reply,
+        "openui_code": openui_code,
         "tool_calls_used": list(dict.fromkeys(tool_calls_used)),
         "messages": full_history,
     }
