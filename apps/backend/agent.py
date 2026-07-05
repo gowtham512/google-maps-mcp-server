@@ -158,8 +158,9 @@ async def run_agent_loop_stream(
 
     tool_calls_used: list[str] = []
     max_iterations = 10
+    force_answer_after = 7  # After this many tool rounds, insist on a final answer.
 
-    for _ in range(max_iterations):
+    for iteration in range(max_iterations):
         stream = _ollama_client.chat(
             model=settings.ollama_model,
             messages=context,
@@ -215,6 +216,19 @@ async def run_agent_loop_stream(
                         "content": str(tool_result),
                     }
                 )
+
+        # If the model has already used many tool rounds, remind it to answer now.
+        if iteration >= force_answer_after - 1:
+            context.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "You have made enough tool calls for this request. "
+                        "Do NOT call any more tools. Use the information you already have "
+                        "to produce a final answer in valid openui-lang now."
+                    ),
+                }
+            )
     else:
         # Hit max iterations without a final answer
         fallback = "I made several tool calls but couldn't finalize a response. Please try rephrasing your request."
