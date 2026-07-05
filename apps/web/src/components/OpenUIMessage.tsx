@@ -1,5 +1,6 @@
 import { Renderer } from "@openuidev/react-lang"
 import { openuiLibrary } from "@openuidev/react-ui"
+import "@openuidev/react-ui/components.css"
 
 interface OpenUIMessageProps {
   code: string | null
