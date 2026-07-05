@@ -49,8 +49,15 @@ Rules for tool calls:
 - For find_nearby_places, prefer place types from the official list such as restaurant, hotel, gas_station, cafe, tourist_attraction, museum, shopping_mall, park.
 
 You can make multiple tool calls in a loop until you have enough information to answer the user's request.
-When you have a final answer, output it as valid openui-lang code using Cards, TextContent, Tables, Lists, etc.
-If you cannot produce valid openui-lang, output a plain text explanation and the system will wrap it for you.
+
+Final response format — CRITICAL:
+- When you have a final answer, you MUST output ONLY valid openui-lang code.
+- Do NOT output markdown, HTML, JSON, explanations, or anything else.
+- Start with `root = Stack(...)` as the very first line.
+- Use Cards, TextContent, Tables, Lists, Tabs, Steps, etc. to present the answer.
+- If the answer has multiple sections or categories, lay them out with nested Stacks using direction "row" and wrap=true for clear columns.
+- TextContent supports markdown, so you can use bold, lists, and line breaks inside it.
+- The system will detect and render your openui-lang code; plain text will look broken to the user.
 """
 
 
@@ -73,7 +80,14 @@ def _escape_openui(text: str) -> str:
 
 def render_openui_fallback(reply: str, tool_calls_used: list[str]) -> str:
     """Convert plain text into a minimal openui-lang program for safe rendering."""
-    reply_safe = _escape_openui(reply)
+    # Split into paragraphs so long markdown-like text doesn't collapse into one block.
+    paragraphs = [p.strip() for p in reply.strip().split("\n\n") if p.strip()]
+    body_items: list[str] = []
+    for i, para in enumerate(paragraphs):
+        para_safe = _escape_openui(para)
+        body_items.append(f'p{i} = TextContent("{para_safe}", "default")')
+    body_refs = ", ".join(f"p{i}" for i in range(len(body_items)))
+
     tool_lines = ""
     tool_children = ""
     if tool_calls_used:
@@ -88,18 +102,22 @@ tools_header = TextContent("Tools used:", "small")
 tools_stack = Stack([tools_header, {tool_refs}], "column", "xs")
 """
         tool_children = ", tools_stack"
+
+    body_lines = "\n".join(f"  {item}" for item in body_items)
     code = f"""\
 root = Stack([card], "column", "m")
 card = Card([title, body{tool_children}])
 title = CardHeader("Travel Plan")
-body = TextContent("{reply_safe}", "default")
+body = Stack([{body_refs}], "column", "s")
+{body_lines}
 {tool_lines}""".strip()
     return code
 
 
 def looks_like_openui(code: str) -> bool:
     """Heuristic check for valid openui-lang shape."""
-    return bool(code.strip()) and "root = Stack(" in code
+    stripped = code.strip()
+    return bool(stripped) and stripped.startswith("root = Stack(")
 
 
 def _build_message_from_response(message: Any) -> dict[str, Any]:
