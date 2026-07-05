@@ -20,7 +20,9 @@ RUN groupadd -r appgroup && useradd -r -g appgroup appuser \
     && chown -R appuser:appgroup /app
 
 COPY --from=builder /root/.local /home/appuser/.local
+RUN chown -R appuser:appgroup /home/appuser
 ENV PATH=/home/appuser/.local/bin:$PATH
+ENV HOME=/home/appuser
 
 COPY --chown=appuser:appgroup . .
 
