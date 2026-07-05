@@ -66,11 +66,39 @@ app.add_middleware(
 )
 
 
+def _json_safe(obj: Any) -> Any:
+    """Recursively convert objects into JSON-serializable primitives.
+
+    Handles datetimes, Pydantic models, dataclasses, dicts, lists, and
+    falls back to ``str()`` for anything else so SSE never crashes on an
+    unexpected SDK object.
+    """
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, BaseModel):
+        return _json_safe(obj.model_dump() if hasattr(obj, "model_dump") else obj.dict())
+    if hasattr(obj, "__dataclass_fields__"):
+        from dataclasses import asdict
+
+        return _json_safe(asdict(obj))
+    if isinstance(obj, bytes):
+        return obj.decode("utf-8", errors="replace")
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    # Last resort: coerce unknown objects to their string representation instead
+    # of letting json.dumps raise TypeError mid-stream.
+    return str(obj)
+
+
 def _message_to_dict(msg: Message) -> dict[str, Any]:
     data: dict[str, Any] = {
         "role": msg.role,
         "content": msg.content or "",
-        "created_at": msg.created_at,
+        "created_at": msg.created_at.isoformat(),
     }
     if msg.tool_name:
         data["tool_name"] = msg.tool_name
@@ -199,7 +227,7 @@ async def chat(thread_id: str, req: ChatRequest, accept: str = Header(default=""
             async for event in run_agent_loop_stream(req.message, history):
                 if event["type"] == "done":
                     final_event = event
-                yield f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
+                yield f"event: {event['type']}\ndata: {json.dumps(_json_safe(event))}\n\n"
 
             if final_event:
                 await _persist_turn(thread_id, req.message, history, final_event["messages"])

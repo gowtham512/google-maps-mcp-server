@@ -120,6 +120,25 @@ def looks_like_openui(code: str) -> bool:
     return bool(stripped) and stripped.startswith("root = Stack(")
 
 
+def _tool_call_to_dict(call: Any) -> dict[str, Any]:
+    """Normalize an Ollama SDK tool-call object (or dict) into a plain dict."""
+    if isinstance(call, dict):
+        fn = call.get("function", {})
+        return {
+            "function": {
+                "name": fn.get("name", ""),
+                "arguments": fn.get("arguments", {}) or {},
+            }
+        }
+    function = getattr(call, "function", None)
+    return {
+        "function": {
+            "name": getattr(function, "name", "") if function else "",
+            "arguments": getattr(function, "arguments", {}) or {} if function else {},
+        }
+    }
+
+
 def _build_message_from_response(message: Any) -> dict[str, Any]:
     """Build a plain dict from an Ollama SDK response.message object or dict."""
     if isinstance(message, dict):
@@ -188,7 +207,7 @@ async def run_agent_loop_stream(
         assistant_message = {
             "role": "assistant",
             "content": accumulated_content,
-            "tool_calls": accumulated_tool_calls,
+            "tool_calls": [_tool_call_to_dict(c) for c in accumulated_tool_calls] if accumulated_tool_calls else None,
         }
         context.append(assistant_message)
 
@@ -196,13 +215,9 @@ async def run_agent_loop_stream(
             break
 
         for call in accumulated_tool_calls:
-            if isinstance(call, dict):
-                fn = call.get("function", {})
-                tool_name = fn.get("name", "")
-                arguments = fn.get("arguments", {}) or {}
-            else:
-                tool_name = call.function.name
-                arguments = call.function.arguments or {}
+            fn = call.get("function", {})
+            tool_name = fn.get("name", "")
+            arguments = fn.get("arguments", {}) or {}
 
             if tool_name:
                 executed_tool_count += 1
