@@ -16,6 +16,7 @@ export interface Message {
   openui_code?: string | null
   artifact_type?: string | null
   artifact_data?: string | null
+  tools?: ToolCall[]
   created_at: string
 }
 
@@ -70,6 +71,12 @@ export async function sendMessage(threadId: string, message: string): Promise<Ch
   return resp.json()
 }
 
+export interface ToolCall {
+  name: string
+  result?: string
+  status: "running" | "done"
+}
+
 export interface StreamEvent {
   type: "content" | "tool_call" | "tool_result" | "done"
   delta?: string
@@ -86,14 +93,17 @@ export async function sendMessageStream(
   threadId: string,
   message: string,
   onEvent: (event: StreamEvent) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const resp = await fetch(`${API_BASE}/threads/${threadId}/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
+      "X-Accel-Buffering": "no",
     },
     body: JSON.stringify({ message }),
+    signal,
   })
   if (!resp.ok) throw new Error("Failed to send message")
   if (!resp.body) throw new Error("No response body")
@@ -104,11 +114,21 @@ export async function sendMessageStream(
   let eventType = ""
   let eventData = ""
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
+  function flushEvent() {
+    if (eventType && eventData) {
+      try {
+        const payload = JSON.parse(eventData) as StreamEvent
+        onEvent({ ...payload, type: eventType as StreamEvent["type"] })
+      } catch {
+        // ignore malformed events
+      }
+    }
+    eventType = ""
+    eventData = ""
+  }
 
+  function processChunk(chunk: string) {
+    buffer += chunk
     const lines = buffer.split("\n")
     buffer = lines.pop() || ""
 
@@ -117,17 +137,25 @@ export async function sendMessageStream(
         eventType = line.slice(6).trim()
       } else if (line.startsWith("data:")) {
         eventData = line.slice(5).trim()
-      } else if (line === "" && eventType && eventData) {
-        try {
-          const payload = JSON.parse(eventData) as StreamEvent
-          onEvent({ ...payload, type: eventType as StreamEvent["type"] })
-        } catch {
-          // ignore malformed events
-        }
-        eventType = ""
-        eventData = ""
+      } else if (line === "") {
+        flushEvent()
       }
     }
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      processChunk(decoder.decode(value, { stream: true }))
+    }
+  } finally {
+    // Flush any remaining bytes in the decoder and buffer.
+    processChunk(decoder.decode())
+    if (buffer.trim() === "") {
+      flushEvent()
+    }
+    reader.releaseLock()
   }
 }
 
