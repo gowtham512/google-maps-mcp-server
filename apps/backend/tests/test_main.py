@@ -9,16 +9,23 @@ from main import _message_to_dict, app
 
 @pytest.fixture(autouse=True)
 def set_test_db():
-    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+    # Default to in-memory SQLite for fast tests; respect DATABASE_URL if set.
+    original = os.environ.get("DATABASE_URL")
+    if not original:
+        os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
     yield
-    if "DATABASE_URL" in os.environ:
-        del os.environ["DATABASE_URL"]
+    if original is None:
+        if "DATABASE_URL" in os.environ:
+            del os.environ["DATABASE_URL"]
+    else:
+        os.environ["DATABASE_URL"] = original
 
 
 @pytest.fixture
 async def client():
-    from db import close_db, init_db
+    from db import close_db, init_db, reset_engine
 
+    reset_engine()
     await init_db(drop_all=True)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:

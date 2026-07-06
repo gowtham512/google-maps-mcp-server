@@ -10,7 +10,7 @@ A Python-based travel planning AI agent powered by **Ollama Cloud** LLMs and **G
 4. The model decides which tools to call (search places, geocode, route, find nearby).
 5. Tool results are fed back to the model in a loop until a final travel plan is produced.
 6. Only the **most recent 10 messages** are sent to the model on each turn.
-7. All messages are persisted in **SQLite** (replaceable with your DB URL later).
+7. All messages are persisted in **Neon Postgres** via `asyncpg`.
 
 ## Setup
 
@@ -19,8 +19,10 @@ A Python-based travel planning AI agent powered by **Ollama Cloud** LLMs and **G
    OLLAMA_API_KEY=your_ollama_api_key
    OLLAMA_MODEL=qwen3
    MAPS_API_KEY=your_google_maps_api_key
-   DATABASE_URL=sqlite+aiosqlite:///./travel_agent.db
+   DATABASE_URL=postgresql+asyncpg://user:password@<endpoint-id>.us-east-1.aws.neon.tech/dbname?sslmode=require
    ```
+
+   Copy the **unpooled** connection string from the Neon Console and remove any `channel_binding` parameter.
 
 2. Enable these APIs in the Google Cloud Console for your project:
    - Places API (New)

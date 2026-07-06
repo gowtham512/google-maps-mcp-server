@@ -7,9 +7,7 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///app/data/travel_agent.db}
-    volumes:
-      - db_data:/app/data
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://user:password@host.neon.tech/dbname?sslmode=require}
     ports:
       - "8000:8000"
     networks:
@@ -39,9 +37,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-
-volumes:
-  db_data:
 
 networks:
   travel-agent-net:

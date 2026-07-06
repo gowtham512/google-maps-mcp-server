@@ -14,9 +14,8 @@ FROM python:3.13-slim AS runtime
 
 WORKDIR /app
 
-# Create non-root user and data directory for SQLite volume
+# Create non-root user
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser \
-    && mkdir -p /app/data \
     && chown -R appuser:appgroup /app
 
 COPY --from=builder /root/.local /home/appuser/.local

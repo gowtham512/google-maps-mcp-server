@@ -63,6 +63,7 @@ Final response format — CRITICAL:
 Artifact data format — CRITICAL:
 - Immediately after your openui-lang code, add the marker `---ARTIFACT_DATA---` on its own line.
 - After the marker, output ONE compact JSON object describing the artifact and nothing else.
+- The marker and the JSON object are NOT part of the openui-lang program; they are a separate machine-readable appendix.
 - Use one of these schemas based on what you produced:
 
   For a slide deck:
@@ -379,24 +380,28 @@ async def run_agent_loop_stream(
     final_message = new_messages[-1] if new_messages else {"role": "assistant", "content": ""}
     reply = final_message.get("content", "")
 
-    # Treat the final reply as openui-lang if it looks like it; otherwise wrap it.
-    openui_code = reply if looks_like_openui(reply) else render_openui_fallback(reply, tool_calls_used)
-    final_message["openui_code"] = openui_code
-
-    # Extract structured artifact data for exports.
+    # Extract structured artifact data before stripping the marker from the reply.
     artifact_data, artifact_type = extract_artifact_data(reply)
-    if artifact_data is None:
-        fallback = parse_openui_fallback(openui_code)
-        if fallback is not None:
-            fallback_data, fallback_type = fallback
-            artifact_data = json.dumps(fallback_data)
-            artifact_type = fallback_type
+
+    # Remove the artifact marker appendix so it is not rendered or persisted as text.
+    marker = "---ARTIFACT_DATA---"
+    marker_idx = reply.rfind(marker)
+    clean_reply = reply[:marker_idx].strip() if marker_idx != -1 else reply
+
+    # Treat the final reply as openui-lang if it looks like it; otherwise wrap it.
+    openui_code = (
+        clean_reply if looks_like_openui(clean_reply) else render_openui_fallback(clean_reply, tool_calls_used)
+    )
+
+    # Store the cleaned version as the assistant message content.
+    final_message["content"] = clean_reply
+    final_message["openui_code"] = openui_code
     final_message["artifact_data"] = artifact_data
     final_message["artifact_type"] = artifact_type
 
     yield {
         "type": "done",
-        "reply": reply,
+        "reply": clean_reply,
         "openui_code": openui_code,
         "artifact_data": artifact_data,
         "artifact_type": artifact_type,

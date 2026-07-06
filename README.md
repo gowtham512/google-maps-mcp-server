@@ -46,9 +46,9 @@ See [apps/web/README.md](apps/web/README.md).
 
 4. Open the app at `http://localhost`.
 
-The SQLite database is persisted in a Docker volume, so it survives container restarts.
+The backend connects to a Postgres database (Neon by default) using `DATABASE_URL`.
 
 ## Tech stack
 
-- **Backend**: Python, FastAPI, Ollama Cloud, SQLModel/SQLite, Google Maps Platform REST APIs
+- **Backend**: Python, FastAPI, Ollama Cloud, SQLModel/Postgres (asyncpg), Google Maps Platform REST APIs
 - **Frontend**: Vite, React, TypeScript, Tailwind CSS, shadcn/ui, OpenUI (`@openuidev/react-lang`, `@openuidev/react-ui`)
