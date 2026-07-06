@@ -8,11 +8,14 @@ export interface Thread {
 }
 
 export interface Message {
+  id?: number
   role: string
   content: string | null
   tool_name?: string | null
   tool_calls?: any[] | null
   openui_code?: string | null
+  artifact_type?: string | null
+  artifact_data?: string | null
   created_at: string
 }
 
@@ -25,6 +28,8 @@ export interface ChatResponse {
   thread_id: string
   reply: string
   openui_code?: string | null
+  artifact_type?: string | null
+  artifact_data?: string | null
   tool_calls_used: string[]
 }
 
@@ -72,6 +77,8 @@ export interface StreamEvent {
   result?: string
   reply?: string
   openui_code?: string | null
+  artifact_type?: string | null
+  artifact_data?: string | null
   tool_calls_used?: string[]
 }
 
@@ -122,4 +129,59 @@ export async function sendMessageStream(
       }
     }
   }
+}
+
+export type ArtifactFormat = "json" | "pptx" | "pdf" | "auto"
+
+export async function downloadArtifact(
+  threadId: string,
+  messageId: number,
+  format: ArtifactFormat = "auto",
+): Promise<void> {
+  const resp = await fetch(
+    `${API_BASE}/threads/${threadId}/messages/${messageId}/artifact?format=${format}`,
+  )
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "")
+    throw new Error(body || `Failed to download ${format}`)
+  }
+
+  const blob = await resp.blob()
+  const contentDisposition = resp.headers.get("content-disposition")
+  const filenameMatch = contentDisposition?.match(/filename="?([^";]+)"?/)
+  const filename = filenameMatch?.[1] || `artifact.${format === "auto" ? "download" : format}`
+
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+export async function downloadLatestArtifact(
+  threadId: string,
+  format: ArtifactFormat = "auto",
+): Promise<void> {
+  const resp = await fetch(`${API_BASE}/threads/${threadId}/artifact/latest?format=${format}`)
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "")
+    throw new Error(body || `Failed to download ${format}`)
+  }
+
+  const blob = await resp.blob()
+  const contentDisposition = resp.headers.get("content-disposition")
+  const filenameMatch = contentDisposition?.match(/filename="?([^";]+)"?/)
+  const filename = filenameMatch?.[1] || `artifact.${format === "auto" ? "download" : format}`
+
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.URL.revokeObjectURL(url)
 }

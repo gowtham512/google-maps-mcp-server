@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,20 @@ Final response format — CRITICAL:
 - If the answer has multiple sections or categories, lay them out with nested Stacks using direction "row" and wrap=true for clear columns.
 - TextContent supports markdown, so you can use bold, lists, and line breaks inside it.
 - The system will detect and render your openui-lang code; plain text will look broken to the user.
+
+Artifact data format — CRITICAL:
+- Immediately after your openui-lang code, add the marker `---ARTIFACT_DATA---` on its own line.
+- After the marker, output ONE compact JSON object describing the artifact and nothing else.
+- Use one of these schemas based on what you produced:
+
+  For a slide deck:
+  {{"type": "slides", "title": "Deck title", "slides": [{{"title": "Slide title", "subtitle": "Optional subtitle", "image_url": "https://...", "bullets": ["point 1", "point 2"]}}]}}
+
+  For a written report:
+  {{"type": "report", "title": "Report title", "sections": [{{"heading": "Section heading", "image_url": "https://...", "body": "Section body text"}}]}}
+
+- `image_url` is optional. Only include it when you have a real, publicly accessible image URL from a tool result or a known source. Do not invent URLs.
+- If the response is neither slides nor a report, still include the marker with `null`: `---ARTIFACT_DATA---\\nnull`
 """
 
 
@@ -76,6 +91,92 @@ def _escape_openui(text: str) -> str:
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )
+
+
+def extract_artifact_data(reply: str) -> tuple[str | None, str | None]:
+    """Pull structured artifact data and type from a model reply.
+
+    The model is instructed to append:
+        ---ARTIFACT_DATA---
+        {"type": "slides"|"report", "title": ...}
+
+    Returns (json_string, artifact_type) or (None, None) if the marker is
+    missing/invalid or the value is null.
+    """
+    marker = "---ARTIFACT_DATA---"
+    idx = reply.rfind(marker)
+    if idx == -1:
+        return None, None
+    json_part = reply[idx + len(marker) :].strip()
+    if not json_part:
+        return None, None
+    try:
+        parsed = json.loads(json_part)
+    except json.JSONDecodeError:
+        return None, None
+    if parsed is None or not isinstance(parsed, dict):
+        return None, None
+    artifact_type = parsed.get("type")
+    if artifact_type not in {"slides", "report"}:
+        return None, None
+    return json_part, artifact_type
+
+
+def parse_openui_fallback(openui_code: str) -> tuple[dict[str, Any], str] | None:
+    """Lightweight fallback that guesses artifact type and scrapes content.
+
+    - If the code uses Tabs, Accordion, Steps, or many short Cards → treat as slides.
+    - Otherwise treat as a report.
+    """
+    import re
+
+    title_match = re.search(r'CardHeader\("([^"]+)"', openui_code)
+    title = title_match.group(1) if title_match else "Artifact"
+
+    # Components that look like a slide deck.
+    slide_like = bool(re.search(r'\b(Tabs|Accordion|Steps|Carousel)\b', openui_code))
+
+    # Extract all TextContent strings.
+    strings = re.findall(r'TextContent\("([^"]*)"(?:,\s*"[^"]*")?\)', openui_code)
+    strings = [s.strip() for s in strings if s.strip()]
+
+    if slide_like:
+        # Group strings into simple slides (one every 3-5 strings as a heuristic).
+        slides: list[dict[str, Any]] = []
+        chunk_size = 4
+        for i in range(0, len(strings), chunk_size):
+            chunk = strings[i : i + chunk_size]
+            slides.append({
+                "title": chunk[0] if chunk else "Slide",
+                "subtitle": "",
+                "bullets": chunk[1:] if len(chunk) > 1 else [],
+            })
+        if not slides:
+            return None
+        return {"type": "slides", "title": title, "slides": slides}, "slides"
+
+    # Treat as report: split text into sections by headings/heavy lines.
+    sections: list[dict[str, Any]] = []
+    current_body: list[str] = []
+    current_heading = "Summary"
+    heading_re = re.compile(r"^(\*\*|__)([^*]+)\1")
+
+    for s in strings:
+        if heading_re.match(s):
+            if current_body:
+                sections.append({"heading": current_heading, "body": "\n\n".join(current_body)})
+                current_body = []
+            current_heading = heading_re.sub(r"\2", s).strip()
+        else:
+            current_body.append(s)
+
+    if current_body:
+        sections.append({"heading": current_heading, "body": "\n\n".join(current_body)})
+
+    if not sections:
+        sections.append({"heading": title, "body": "\n\n".join(strings) if strings else "No content."})
+
+    return {"type": "report", "title": title, "sections": sections}, "report"
 
 
 def render_openui_fallback(reply: str, tool_calls_used: list[str]) -> str:
@@ -282,10 +383,23 @@ async def run_agent_loop_stream(
     openui_code = reply if looks_like_openui(reply) else render_openui_fallback(reply, tool_calls_used)
     final_message["openui_code"] = openui_code
 
+    # Extract structured artifact data for exports.
+    artifact_data, artifact_type = extract_artifact_data(reply)
+    if artifact_data is None:
+        fallback = parse_openui_fallback(openui_code)
+        if fallback is not None:
+            fallback_data, fallback_type = fallback
+            artifact_data = json.dumps(fallback_data)
+            artifact_type = fallback_type
+    final_message["artifact_data"] = artifact_data
+    final_message["artifact_type"] = artifact_type
+
     yield {
         "type": "done",
         "reply": reply,
         "openui_code": openui_code,
+        "artifact_data": artifact_data,
+        "artifact_type": artifact_type,
         "tool_calls_used": list(dict.fromkeys(tool_calls_used)),
         "messages": full_history,
     }
@@ -299,6 +413,8 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
             result = {
                 "reply": event["reply"],
                 "openui_code": event["openui_code"],
+                "artifact_type": event.get("artifact_type"),
+                "artifact_data": event.get("artifact_data"),
                 "tool_calls_used": event["tool_calls_used"],
                 "messages": event["messages"],
             }
@@ -306,6 +422,8 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
         return {
             "reply": "",
             "openui_code": None,
+            "artifact_type": None,
+            "artifact_data": None,
             "tool_calls_used": [],
             "messages": list(message_history) if message_history else [],
         }

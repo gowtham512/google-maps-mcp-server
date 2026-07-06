@@ -21,6 +21,8 @@ class Message(SQLModel, table=True):
     tool_name: str | None = None
     tool_calls: str | None = None  # JSON serialized
     openui_code: str | None = None  # OpenUI Lang code for assistant/tool messages
+    artifact_type: str | None = None  # "slides" or "report"
+    artifact_data: str | None = None  # Structured artifact JSON for export
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     thread: Thread | None = Relationship(back_populates="messages")

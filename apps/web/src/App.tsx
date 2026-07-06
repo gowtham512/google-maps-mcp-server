@@ -132,6 +132,8 @@ export default function App() {
             const last = next[next.length - 1]
             if (last && last.role === "assistant") {
               last.openui_code = event.openui_code ?? null
+              last.artifact_type = event.artifact_type ?? null
+              last.artifact_data = event.artifact_data ?? null
               if (event.openui_code) {
                 last.content = event.reply || last.content
               }
@@ -212,7 +214,13 @@ export default function App() {
                   >
                     <CardContent className="p-4">
                       {msg.role === "assistant" && msg.openui_code ? (
-                        <OpenUIMessage code={msg.openui_code} />
+                        <OpenUIMessage
+                          threadId={activeThreadId}
+                          messageId={msg.id}
+                          code={msg.openui_code}
+                          artifactType={msg.artifact_type}
+                          artifactData={msg.artifact_data}
+                        />
                       ) : (
                         <div className="whitespace-pre-wrap">{msg.content || ""}</div>
                       )}
