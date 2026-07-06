@@ -6,6 +6,7 @@ import "@openuidev/react-ui/components.css"
 import { Download, FileJson, FileText, Loader2, Presentation } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { ArtifactMessage } from "@/components/ArtifactMessage"
 import { downloadArtifact, type ArtifactFormat } from "@/lib/api"
 
 interface OpenUIMessageProps {
@@ -91,6 +92,13 @@ export function OpenUIMessage({
           }
         }}
       />
+      {hasArtifact && (
+        <ArtifactMessage
+          threadId={threadId}
+          messageId={messageId}
+          artifactData={artifactData ?? null}
+        />
+      )}
     </div>
   )
 }
