@@ -1,14 +1,25 @@
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import Column, DateTime
 from sqlmodel import Field, Relationship, SQLModel
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class Thread(SQLModel, table=True):
     id: str = Field(primary_key=True)
     title: str = "New Chat"
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
 
     messages: list["Message"] = Relationship(back_populates="thread")
 
@@ -23,7 +34,10 @@ class Message(SQLModel, table=True):
     openui_code: str | None = None  # OpenUI Lang code for assistant/tool messages
     artifact_type: str | None = None  # "slides" or "report"
     artifact_data: str | None = None  # Structured artifact JSON for export
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
 
     thread: Thread | None = Relationship(back_populates="messages")
 
