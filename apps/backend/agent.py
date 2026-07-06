@@ -227,17 +227,21 @@ def _tool_call_to_dict(call: Any) -> dict[str, Any]:
     if isinstance(call, dict):
         fn = call.get("function", {})
         return {
+            "id": call.get("id") or fn.get("id") or "",
+            "type": "function",
             "function": {
                 "name": fn.get("name", ""),
                 "arguments": fn.get("arguments", {}) or {},
-            }
+            },
         }
     function = getattr(call, "function", None)
     return {
+        "id": getattr(call, "id", "") if isinstance(call, object) else "",
+        "type": "function",
         "function": {
             "name": getattr(function, "name", "") if function else "",
             "arguments": getattr(function, "arguments", {}) or {} if function else {},
-        }
+        },
     }
 
 
@@ -320,6 +324,7 @@ async def run_agent_loop_stream(
             fn = call.get("function", {})
             tool_name = fn.get("name", "")
             arguments = fn.get("arguments", {}) or {}
+            tool_call_id = call.get("id") or f"{tool_name}_{executed_tool_count}"
 
             if tool_name:
                 executed_tool_count += 1
@@ -329,27 +334,29 @@ async def run_agent_loop_stream(
                         f"of {max_tool_calls_per_turn} has been reached. "
                         "Use the information already gathered to answer."
                     )
-                    yield {"type": "tool_call", "name": tool_name}
-                    yield {"type": "tool_result", "name": tool_name, "result": skipped}
+                    yield {"type": "tool_call", "id": tool_call_id, "name": tool_name}
+                    yield {"type": "tool_result", "id": tool_call_id, "name": tool_name, "result": skipped}
                     context.append(
                         {
                             "role": "tool",
                             "tool_name": tool_name,
+                            "tool_call_id": tool_call_id,
                             "content": skipped,
                         }
                     )
                     continue
 
                 tool_calls_used.append(tool_name)
-                yield {"type": "tool_call", "name": tool_name}
+                yield {"type": "tool_call", "id": tool_call_id, "name": tool_name}
 
                 tool_result = await _execute_tool(tool_name, arguments)
-                yield {"type": "tool_result", "name": tool_name, "result": str(tool_result)}
+                yield {"type": "tool_result", "id": tool_call_id, "name": tool_name, "result": str(tool_result)}
 
                 context.append(
                     {
                         "role": "tool",
                         "tool_name": tool_name,
+                        "tool_call_id": tool_call_id,
                         "content": str(tool_result),
                     }
                 )

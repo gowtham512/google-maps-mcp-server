@@ -31,6 +31,7 @@ class Message(SQLModel, table=True):
     content: str | None = None
     tool_name: str | None = None
     tool_calls: str | None = None  # JSON serialized
+    tool_call_id: str | None = None  # Matches assistant tool_calls with tool results
     openui_code: str | None = None  # OpenUI Lang code for assistant/tool messages
     artifact_type: str | None = None  # "slides" or "report"
     artifact_data: str | None = None  # Structured artifact JSON for export

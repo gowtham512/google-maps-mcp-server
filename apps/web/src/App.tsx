@@ -55,16 +55,6 @@ export default function App() {
     }
   }
 
-  async function loadThread(threadId: string) {
-    try {
-      setError(null)
-      const data = await getThread(threadId)
-      setMessages(data.messages)
-    } catch (err) {
-      setError("Failed to load thread")
-      console.error(err)
-    }
-  }
 
   async function handleNewThread() {
     try {
@@ -108,6 +98,78 @@ export default function App() {
     return messages.map((m, i) => (i === idx ? updater({ ...m }) : m))
   }
 
+  function hydrateTools(loaded: Message[]): Message[] {
+    const result: Message[] = []
+    const pendingTools = new Map<string, ToolCall>()
+
+    for (const msg of loaded) {
+      if (msg.role === "assistant" && msg.tool_calls?.length) {
+        const tools: ToolCall[] = []
+        for (const tc of msg.tool_calls) {
+          const fn = tc?.function || {}
+          const id = tc?.id || fn?.id || fn?.name || `tool_${tools.length}`
+          tools.push({ id, name: fn.name || tc?.name || "tool", status: "running" })
+          pendingTools.set(id, tools[tools.length - 1])
+        }
+        result.push({ ...msg, tools })
+        continue
+      }
+
+      if (msg.role === "tool" && msg.tool_call_id) {
+        const tool = pendingTools.get(msg.tool_call_id)
+        if (tool) {
+          tool.status = "done"
+          tool.result = msg.content || undefined
+        } else {
+          // Tool message without a matching assistant call: show as a standalone done tool.
+          result.push({
+            ...msg,
+            tools: [{ id: msg.tool_call_id, name: msg.tool_name || "tool", status: "done", result: msg.content || undefined }],
+          })
+          continue
+        }
+      }
+
+      result.push(msg)
+    }
+
+    return result
+  }
+
+  async function loadThread(threadId: string, preserveCurrentTools = false) {
+    try {
+      setError(null)
+      const data = await getThread(threadId)
+      const hydrated = hydrateTools(data.messages)
+
+      if (preserveCurrentTools) {
+        setMessages((prev) => {
+          const currentToolsById = new Map<string, ToolCall>()
+          for (const m of prev) {
+            for (const t of m.tools || []) {
+              if (t.id) currentToolsById.set(t.id, t)
+            }
+          }
+          return hydrated.map((m) => {
+            if (m.role !== "assistant" || !m.tools?.length) return m
+            return {
+              ...m,
+              tools: m.tools.map((t) => {
+                const live = t.id ? currentToolsById.get(t.id) : undefined
+                return live ? { ...live } : t
+              }),
+            }
+          })
+        })
+      } else {
+        setMessages(hydrated)
+      }
+    } catch (err) {
+      setError("Failed to load thread")
+      console.error(err)
+    }
+  }
+
   async function handleSend(e: React.FormEvent) {
     e.preventDefault()
     if (!input.trim() || !activeThreadId || loading) return
@@ -142,29 +204,31 @@ export default function App() {
             )
           } else if (event.type === "tool_call" && event.name) {
             const toolName = event.name
+            const toolId = event.id || toolName
             setMessages((prev) =>
               updateLastAssistant(prev, (msg) => {
                 const tools = msg.tools ? [...msg.tools] : []
-                const existing = tools.find((t) => t.name === toolName && t.status === "running")
+                const existing = tools.find((t) => (t.id || t.name) === toolId && t.status === "running")
                 if (!existing) {
-                  tools.push({ name: toolName, status: "running" })
+                  tools.push({ id: toolId, name: toolName, status: "running" })
                 }
                 return { ...msg, tools }
               }),
             )
           } else if (event.type === "tool_result" && event.name) {
             const toolName = event.name
+            const toolId = event.id || toolName
             const toolResult = event.result
             setMessages((prev) =>
               updateLastAssistant(prev, (msg) => {
                 const tools = msg.tools ? [...msg.tools] : []
-                const tool = tools.find((t) => t.name === toolName) || {
-                  name: toolName,
-                  status: "running" as const,
+                const idx = tools.findIndex((t) => (t.id || t.name) === toolId)
+                if (idx !== -1) {
+                  tools[idx] = { ...tools[idx], id: toolId, name: toolName, result: toolResult, status: "done" }
+                } else {
+                  tools.push({ id: toolId, name: toolName, result: toolResult, status: "done" })
                 }
-                const filtered = tools.filter((t) => t.name !== toolName)
-                filtered.push({ ...tool, result: toolResult, status: "done" })
-                return { ...msg, tools: filtered }
+                return { ...msg, tools }
               }),
             )
           } else if (event.type === "done") {
@@ -182,7 +246,7 @@ export default function App() {
         controller.signal,
       )
 
-      await loadThread(activeThreadId)
+      await loadThread(activeThreadId, true)
       await loadThreads()
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
@@ -323,12 +387,14 @@ export default function App() {
 
                       {msg.role === "assistant" &&
                         loading &&
-                        !msg.content &&
-                        !msg.openui_code &&
                         idx === messages.length - 1 && (
                           <div className="flex items-center gap-2 mt-2 text-muted-foreground">
                             <Loader2 className="h-4 w-4 animate-spin" />
-                            <span className="text-sm">Thinking...</span>
+                            <span className="text-sm">
+                              {msg.tools?.some((t) => t.status === "running")
+                                ? `Using ${msg.tools.find((t) => t.status === "running")?.name ?? "tools"}...`
+                                : "Thinking..."}
+                            </span>
                           </div>
                         )}
                     </CardContent>
@@ -388,11 +454,11 @@ function ToolBadge({ tool }: { tool: ToolCall }) {
   return (
     <div className="flex items-center gap-2 text-xs md:text-sm rounded-md border px-2 py-1.5 bg-muted/50">
       <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
-      <span className="font-medium">{tool.name}</span>
+      <span className="font-medium truncate max-w-[180px] sm:max-w-[240px]">{tool.name}</span>
       {tool.status === "running" ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
       ) : (
-        <span className="text-muted-foreground">{tool.result}</span>
+        <span className="text-muted-foreground shrink-0">Done</span>
       )}
     </div>
   )

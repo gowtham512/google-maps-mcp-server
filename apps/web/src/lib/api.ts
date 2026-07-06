@@ -12,6 +12,7 @@ export interface Message {
   role: string
   content: string | null
   tool_name?: string | null
+  tool_call_id?: string | null
   tool_calls?: any[] | null
   openui_code?: string | null
   artifact_type?: string | null
@@ -72,6 +73,7 @@ export async function sendMessage(threadId: string, message: string): Promise<Ch
 }
 
 export interface ToolCall {
+  id?: string
   name: string
   result?: string
   status: "running" | "done"
@@ -79,6 +81,7 @@ export interface ToolCall {
 
 export interface StreamEvent {
   type: "content" | "tool_call" | "tool_result" | "done"
+  id?: string
   delta?: string
   name?: string
   result?: string
@@ -134,6 +137,7 @@ export async function sendMessageStream(
 
     for (const line of lines) {
       if (line.startsWith("event:")) {
+        if (eventType || eventData) flushEvent()
         eventType = line.slice(6).trim()
       } else if (line.startsWith("data:")) {
         eventData = line.slice(5).trim()
@@ -152,7 +156,7 @@ export async function sendMessageStream(
   } finally {
     // Flush any remaining bytes in the decoder and buffer.
     processChunk(decoder.decode())
-    if (buffer.trim() === "") {
+    if (eventType && eventData) {
       flushEvent()
     }
     reader.releaseLock()

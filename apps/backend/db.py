@@ -88,6 +88,8 @@ async def migrate_db():
             await conn.execute(text("ALTER TABLE message ADD COLUMN artifact_type VARCHAR"))
         if "artifact_data" not in columns:
             await conn.execute(text("ALTER TABLE message ADD COLUMN artifact_data TEXT"))
+        if "tool_call_id" not in columns:
+            await conn.execute(text("ALTER TABLE message ADD COLUMN tool_call_id VARCHAR"))
 
 
 @asynccontextmanager
