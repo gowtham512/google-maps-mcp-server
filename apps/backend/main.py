@@ -134,6 +134,8 @@ def _message_to_dict(msg: Message) -> dict[str, Any]:
         data["tool_call_id"] = msg.tool_call_id
     if msg.tool_calls:
         data["tool_calls"] = json.loads(msg.tool_calls)
+    if msg.tool_input:
+        data["tool_input"] = msg.tool_input
     if msg.openui_code:
         data["openui_code"] = msg.openui_code
     if msg.artifact_type:
@@ -170,6 +172,7 @@ async def _persist_turn(thread_id: str, user_message: str, history: list[dict[st
                 tool_name=msg.get("tool_name"),
                 tool_call_id=msg.get("tool_call_id"),
                 tool_calls=json.dumps(msg.get("tool_calls")) if msg.get("tool_calls") else None,
+                tool_input=msg.get("tool_input"),
                 openui_code=msg.get("openui_code") if msg.get("role") == "assistant" else None,
                 artifact_type=msg.get("artifact_type") if msg.get("role") == "assistant" else None,
                 artifact_data=msg.get("artifact_data") if msg.get("role") == "assistant" else None,

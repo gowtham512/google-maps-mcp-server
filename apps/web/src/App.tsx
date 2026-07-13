@@ -151,7 +151,14 @@ export default function App() {
         for (const tc of msg.tool_calls) {
           const fn = tc?.function || {}
           const id = tc?.id || fn?.id || fn?.name || `tool_${tools.length}`
-          tools.push({ id, name: fn.name || tc?.name || "tool", status: "running" })
+          // Extract input arguments from the tool_call's function.arguments
+          const rawArgs = fn?.arguments
+          const input = rawArgs
+            ? typeof rawArgs === "string"
+              ? rawArgs
+              : JSON.stringify(rawArgs)
+            : undefined
+          tools.push({ id, name: fn.name || tc?.name || "tool", input, status: "running" })
           pendingTools.set(id, tools[tools.length - 1])
         }
         result.push({ ...msg, tools })
@@ -163,11 +170,20 @@ export default function App() {
         if (tool) {
           tool.status = "done"
           tool.result = msg.content || undefined
+          // Backfill input from the tool message if the assistant message didn't have it
+          if (!tool.input && (msg as any).tool_input) {
+            tool.input = (msg as any).tool_input
+          }
         } else {
-          // Tool message without a matching assistant call: show as a standalone done tool.
           result.push({
             ...msg,
-            tools: [{ id: msg.tool_call_id, name: msg.tool_name || "tool", status: "done", result: msg.content || undefined }],
+            tools: [{
+              id: msg.tool_call_id,
+              name: msg.tool_name || "tool",
+              input: (msg as any).tool_input || undefined,
+              status: "done",
+              result: msg.content || undefined,
+            }],
           })
           continue
         }

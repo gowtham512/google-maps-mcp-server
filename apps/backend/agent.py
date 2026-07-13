@@ -442,6 +442,7 @@ async def run_agent_loop_stream(
                         "role": "tool",
                         "tool_name": tool_name,
                         "tool_call_id": tool_call_id,
+                        "tool_input": json.dumps(arguments),
                         "content": str(tool_result),
                     }
                 )
