@@ -2,34 +2,281 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Design tokens ───────────────────────────────────────────────────── */
 :root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
+  /* Travel-indigo palette */
+  --background: 220 20% 98%;
+  --foreground: 222 39% 11%;
   --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
+  --card-foreground: 222 39% 11%;
   --popover: 0 0% 100%;
-  --popover-foreground: 222.2 84% 4.9%;
-  --primary: 222.2 47.4% 11.2%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 210 40% 96.1%;
-  --accent-foreground: 222.2 47.4% 11.2%;
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 222.2 84% 4.9%;
-  --radius: 0.5rem;
+  --popover-foreground: 222 39% 11%;
+  --primary: 234 89% 58%;          /* vivid indigo */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 20% 94%;
+  --secondary-foreground: 222 39% 11%;
+  --muted: 220 20% 94%;
+  --muted-foreground: 220 13% 50%;
+  --accent: 234 89% 94%;
+  --accent-foreground: 234 89% 30%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 20% 88%;
+  --input: 220 20% 91%;
+  --ring: 234 89% 58%;
+  --radius: 0.75rem;
+
+  /* Auth hero gradient stops */
+  --hero-from: 234 89% 40%;
+  --hero-to:   262 80% 28%;
 }
+
+/* ─── Base ─────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
   @apply bg-background text-foreground;
+  font-feature-settings: "cv02","cv03","cv04","cv11";
+  -webkit-font-smoothing: antialiased;
 }
 
-#root {
-  height: 100vh;
+#root { height: 100vh; }
+
+/* ─── Keyframes ─────────────────────────────────────────────────────────── */
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  33%       { transform: translateY(-18px) rotate(3deg); }
+  66%       { transform: translateY(-8px) rotate(-2deg); }
 }
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-24px); }
+}
+
+@keyframes drift {
+  0%   { transform: translate(0, 0) scale(1); }
+  25%  { transform: translate(30px, -20px) scale(1.05); }
+  50%  { transform: translate(-20px, -40px) scale(0.97); }
+  75%  { transform: translate(-40px, -10px) scale(1.03); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 hsl(234 89% 58% / 0.4); }
+  50%       { box-shadow: 0 0 0 16px hsl(234 89% 58% / 0); }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-32px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(32px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes orb-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.6; }
+  33%       { transform: translate(60px, -80px) scale(1.2); opacity: 0.8; }
+  66%       { transform: translate(-40px, -120px) scale(0.9); opacity: 0.5; }
+}
+
+@keyframes orb-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.4; }
+  33%       { transform: translate(-80px, 60px) scale(0.8); opacity: 0.6; }
+  66%       { transform: translate(50px, 90px) scale(1.1); opacity: 0.3; }
+}
+
+@keyframes orb-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%       { transform: translate(40px, -60px) scale(1.15); }
+}
+
+@keyframes typing-dot {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30%            { transform: translateY(-6px); opacity: 1; }
+}
+
+/* ─── Utility animation classes ─────────────────────────────────────────── */
+
+.animate-float       { animation: float 6s ease-in-out infinite; }
+.animate-float-slow  { animation: float-slow 8s ease-in-out infinite; }
+.animate-drift       { animation: drift 20s ease-in-out infinite; }
+.animate-pulse-glow  { animation: pulse-glow 2.5s ease-in-out infinite; }
+.animate-fade-up     { animation: fade-up 0.6s cubic-bezier(0.16,1,0.3,1) both; }
+.animate-fade-in     { animation: fade-in 0.5s ease both; }
+.animate-slide-left  { animation: slide-in-left 0.5s cubic-bezier(0.16,1,0.3,1) both; }
+.animate-slide-right { animation: slide-in-right 0.5s cubic-bezier(0.16,1,0.3,1) both; }
+.animate-spin-slow   { animation: spin-slow 20s linear infinite; }
+.animate-shimmer     { animation: shimmer 3s linear infinite; }
+
+.anim-delay-100 { animation-delay: 100ms; }
+.anim-delay-200 { animation-delay: 200ms; }
+.anim-delay-300 { animation-delay: 300ms; }
+.anim-delay-400 { animation-delay: 400ms; }
+.anim-delay-500 { animation-delay: 500ms; }
+.anim-delay-600 { animation-delay: 600ms; }
+
+/* ─── Auth hero background ──────────────────────────────────────────────── */
+
+.auth-hero {
+  background: linear-gradient(135deg,
+    hsl(234 89% 40%) 0%,
+    hsl(248 80% 35%) 40%,
+    hsl(262 80% 28%) 100%
+  );
+  position: relative;
+  overflow: hidden;
+}
+
+.auth-hero-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+}
+
+.auth-hero-orb-1 {
+  width: 500px; height: 500px;
+  background: hsl(200 100% 70% / 0.25);
+  top: -100px; left: -100px;
+  animation: orb-1 18s ease-in-out infinite;
+}
+
+.auth-hero-orb-2 {
+  width: 400px; height: 400px;
+  background: hsl(280 80% 70% / 0.2);
+  bottom: -80px; right: -60px;
+  animation: orb-2 22s ease-in-out infinite;
+}
+
+.auth-hero-orb-3 {
+  width: 300px; height: 300px;
+  background: hsl(234 89% 80% / 0.15);
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  animation: orb-3 15s ease-in-out infinite;
+}
+
+/* Grid overlay */
+.auth-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(hsl(0 0% 100% / 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(0 0% 100% / 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events: none;
+}
+
+/* ─── Floating landmark icons ────────────────────────────────────────────── */
+
+.landmark {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
+  border: 1px solid hsl(0 0% 100% / 0.2);
+  background: hsl(0 0% 100% / 0.12);
+  color: white;
+  font-size: 1.5rem;
+  box-shadow: 0 8px 32px hsl(0 0% 0% / 0.2);
+}
+
+/* ─── Form card glass effect ─────────────────────────────────────────────── */
+
+.auth-form-card {
+  background: hsl(0 0% 100% / 0.97);
+  backdrop-filter: blur(20px);
+  border: 1px solid hsl(220 20% 92%);
+  box-shadow:
+    0 0 0 1px hsl(220 20% 92%),
+    0 24px 64px hsl(234 89% 20% / 0.12),
+    0 4px 16px hsl(234 89% 20% / 0.06);
+}
+
+/* ─── Input focus glow ───────────────────────────────────────────────────── */
+
+.input-glow:focus-within {
+  box-shadow: 0 0 0 3px hsl(234 89% 58% / 0.15);
+}
+
+/* ─── Chat sidebar ───────────────────────────────────────────────────────── */
+
+.sidebar-glass {
+  background: hsl(220 20% 98% / 0.95);
+  backdrop-filter: blur(16px);
+  border-right: 1px solid hsl(220 20% 90%);
+}
+
+/* ─── Message bubble ─────────────────────────────────────────────────────── */
+
+.msg-enter {
+  animation: fade-up 0.35s cubic-bezier(0.16,1,0.3,1) both;
+}
+
+/* ─── Shimmer gradient text ──────────────────────────────────────────────── */
+
+.gradient-text {
+  background: linear-gradient(
+    90deg,
+    hsl(234 89% 58%),
+    hsl(280 80% 60%),
+    hsl(200 100% 55%),
+    hsl(234 89% 58%)
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 4s linear infinite;
+}
+
+/* ─── Typing indicator ───────────────────────────────────────────────────── */
+
+.typing-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: typing-dot 1.2s ease-in-out infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* ─── Scrollbar ──────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: hsl(220 20% 82%);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover { background: hsl(220 20% 70%); }

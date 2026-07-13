@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Loader2, LogOut, MapPin, Menu, MessageSquarePlus, Send, Trash2, X } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { LoginPage } from "@/components/LoginPage"
 import { SignupPage } from "@/components/SignupPage"
 import { OpenUIMessage } from "@/components/OpenUIMessage"
@@ -331,204 +328,335 @@ export default function App() {
   const activeThread = threads.find((t) => t.id === activeThreadId)
   const currentThreadId = activeThreadId
 
+  const SUGGESTIONS = [
+    { icon: "🗼", text: "Plan a 3-day trip to Paris" },
+    { icon: "🏯", text: "Best places to visit in Tokyo" },
+    { icon: "🌊", text: "Beach resorts near Bali" },
+    { icon: "🗺️", text: "Route from Rome to Amalfi Coast" },
+  ]
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
-      {/* Mobile sidebar overlay */}
+
+      {/* Mobile overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
+      {/* ── Sidebar ── */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-72 transform border-r bg-muted/40 flex flex-col transition-transform duration-200 ease-in-out md:static md:w-64 md:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
+        className={`fixed inset-y-0 left-0 z-50 w-72 flex flex-col sidebar-glass transition-transform duration-300 ease-in-out
+          md:static md:w-64 md:translate-x-0
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
-        <div className="p-4 border-b flex items-center justify-between">
-          <h1 className="font-semibold truncate md:hidden">Travel Planner</h1>
-          <Button onClick={handleNewThread} className="w-full md:w-auto flex-1 md:flex-none md:ml-0">
-            <MessageSquarePlus className="mr-2 h-4 w-4" />
-            <span className="hidden sm:inline">New Chat</span>
-            <span className="sm:hidden">New</span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="ml-2 md:hidden"
+        {/* Sidebar header */}
+        <div className="p-4 flex items-center justify-between border-b border-border/60">
+          <div className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
+              <MapPin className="h-4 w-4 text-white" />
+            </div>
+            <span className="font-bold text-sm tracking-tight">Voyager AI</span>
+          </div>
+          <button
+            className="md:hidden h-8 w-8 rounded-lg hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
             onClick={() => setSidebarOpen(false)}
           >
-            <X className="h-5 w-5" />
-          </Button>
+            <X className="h-4 w-4" />
+          </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {threads.length === 0 && (
-            <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-              No chats yet. Start a new trip plan!
-            </div>
-          )}
-          {threads.map((thread) => (
-            <div
-              key={thread.id}
-              onClick={() => selectThread(thread.id)}
-              className={`group flex items-center justify-between p-3 rounded-md cursor-pointer hover:bg-muted ${
-                activeThreadId === thread.id ? "bg-muted" : ""
-              }`}
-            >
-              <span className="truncate text-sm font-medium">{thread.title}</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                onClick={(e) => handleDeleteThread(e, thread.id)}
-              >
-                <Trash2 className="h-4 w-4 text-muted-foreground" />
-              </Button>
-            </div>
-          ))}
-        </div>
-        {/* Logout */}
-        <div className="p-3 border-t">
-          <Button
-            variant="ghost"
-            className="w-full justify-start text-muted-foreground hover:text-foreground"
-            onClick={handleLogout}
+
+        {/* New chat button */}
+        <div className="p-3">
+          <button
+            onClick={handleNewThread}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 active:scale-[0.98] transition-all shadow-md shadow-primary/20"
           >
-            <LogOut className="mr-2 h-4 w-4" />
+            <MessageSquarePlus className="h-4 w-4" />
+            New Trip Chat
+          </button>
+        </div>
+
+        {/* Thread list */}
+        <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
+          {threads.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+              <div className="h-12 w-12 rounded-2xl bg-muted flex items-center justify-center mb-3">
+                <MapPin className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium text-muted-foreground">No trips yet</p>
+              <p className="text-xs text-muted-foreground/70 mt-1">Start planning your first adventure</p>
+            </div>
+          ) : (
+            <>
+              <p className="px-3 pt-2 pb-1 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest">
+                Recent
+              </p>
+              {threads.map((thread) => (
+                <div
+                  key={thread.id}
+                  onClick={() => selectThread(thread.id)}
+                  className={`group flex items-center gap-2 px-3 py-2.5 rounded-xl cursor-pointer transition-all
+                    ${activeThreadId === thread.id
+                      ? "bg-primary/10 text-primary"
+                      : "hover:bg-muted/70 text-foreground"
+                    }`}
+                >
+                  <div className={`h-1.5 w-1.5 rounded-full shrink-0 transition-colors ${
+                    activeThreadId === thread.id ? "bg-primary" : "bg-muted-foreground/30"
+                  }`} />
+                  <span className="flex-1 truncate text-sm font-medium">{thread.title}</span>
+                  <button
+                    className="h-6 w-6 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive flex items-center justify-center shrink-0 transition-all"
+                    onClick={(e) => handleDeleteThread(e, thread.id)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+
+        {/* Logout */}
+        <div className="p-3 border-t border-border/60">
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-all text-sm font-medium"
+          >
+            <LogOut className="h-4 w-4" />
             Sign out
-          </Button>
+          </button>
         </div>
       </aside>
 
-      {/* Chat area */}
-      <main className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <header className="border-b px-4 py-3 flex items-center justify-between bg-muted/20 md:hidden">
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)}>
-              <Menu className="h-5 w-5" />
-            </Button>
-            <span className="font-medium truncate">{activeThread?.title || "Travel Planner"}</span>
+      {/* ── Main chat area ── */}
+      <main className="flex-1 flex flex-col min-w-0 bg-background">
+
+        {/* Top header bar */}
+        <header className="flex items-center gap-3 px-4 py-3 border-b border-border/60 bg-background/95 backdrop-blur supports-backdrop-blur:bg-background/80 shrink-0">
+          <button
+            className="md:hidden h-9 w-9 rounded-xl hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => setSidebarOpen(true)}
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+
+          <div className="flex-1 min-w-0">
+            {activeThread ? (
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                <h1 className="font-semibold text-sm truncate">{activeThread.title}</h1>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <MapPin className="h-4 w-4 text-primary shrink-0" />
+                <h1 className="font-semibold text-sm">Voyager AI</h1>
+              </div>
+            )}
           </div>
+
+          {/* Desktop brand (visible when no thread active) */}
+          {!activeThread && (
+            <div className="hidden md:flex items-center gap-2 text-muted-foreground text-xs">
+              <div className="h-5 w-5 rounded-md bg-primary/10 flex items-center justify-center">
+                <MapPin className="h-3 w-3 text-primary" />
+              </div>
+              Powered by Google Maps
+            </div>
+          )}
         </header>
 
+        {/* Messages or welcome */}
         {activeThreadId ? (
           <>
-            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
-              {messages.length === 0 && (
-                <div className="flex h-full flex-col items-center justify-center text-muted-foreground px-4 text-center">
-                  <MapPin className="mb-3 h-10 w-10" />
-                  <p className="text-lg font-medium">Start a conversation</p>
-                  <p className="text-sm mt-1">Ask me to plan a trip, find places, or build a route.</p>
-                </div>
-              )}
-              {messages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                >
-                  <Card
-                    className={`max-w-[92%] sm:max-w-[85%] md:max-w-[80%] ${
-                      msg.role === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-card"
-                    }`}
+            <div className="flex-1 overflow-y-auto">
+              <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+                {messages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-16 text-center animate-fade-up">
+                    <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4 animate-pulse-glow">
+                      <MapPin className="h-8 w-8 text-primary" />
+                    </div>
+                    <h2 className="text-xl font-bold mb-2">Where to next?</h2>
+                    <p className="text-muted-foreground text-sm max-w-xs">
+                      Ask me to plan a trip, find places, check weather, or build a route.
+                    </p>
+                  </div>
+                )}
+
+                {messages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex gap-3 msg-enter ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                    style={{ animationDelay: `${idx * 20}ms` }}
                   >
-                    <CardContent className="p-3 md:p-4">
-                      {msg.role === "assistant" && msg.openui_code ? (
-                        <OpenUIMessage
-                          threadId={currentThreadId!}
-                          messageId={msg.id}
-                          code={msg.openui_code}
-                          artifactType={msg.artifact_type}
-                          artifactData={msg.artifact_data}
-                        />
-                      ) : (
-                        <div className="whitespace-pre-wrap text-sm md:text-base">
-                          {msg.content || ""}
-                        </div>
-                      )}
+                    {/* Assistant avatar */}
+                    {msg.role === "assistant" && (
+                      <div className="h-8 w-8 rounded-xl bg-primary flex items-center justify-center shrink-0 mt-0.5 shadow-md shadow-primary/20">
+                        <MapPin className="h-4 w-4 text-white" />
+                      </div>
+                    )}
 
-                      {msg.tools && msg.tools.length > 0 && (
-                        <ToolCallPanel
-                          tools={msg.tools}
-                          isStreaming={loading && idx === messages.length - 1}
-                        />
-                      )}
+                    <div className={`flex flex-col gap-2 max-w-[88%] sm:max-w-[80%] md:max-w-[72%] min-w-0 ${msg.role === "user" ? "items-end" : "items-start"}`}>
+                      {/* Bubble */}
+                      <div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
+                        msg.role === "user"
+                          ? "bg-primary text-primary-foreground rounded-br-md"
+                          : "bg-card border border-border/60 rounded-bl-md"
+                      }`}>
+                        {msg.role === "assistant" && msg.openui_code ? (
+                          <OpenUIMessage
+                            threadId={currentThreadId!}
+                            messageId={msg.id}
+                            code={msg.openui_code}
+                            artifactType={msg.artifact_type}
+                            artifactData={msg.artifact_data}
+                          />
+                        ) : (
+                          <div className="whitespace-pre-wrap">
+                            {msg.content || (
+                              msg.role === "assistant" && loading && idx === messages.length - 1 ? (
+                                <span className="flex items-center gap-1.5 text-muted-foreground">
+                                  <span className="typing-dot" />
+                                  <span className="typing-dot" />
+                                  <span className="typing-dot" />
+                                </span>
+                              ) : ""
+                            )}
+                          </div>
+                        )}
 
-                      {msg.tool_name && !msg.tools?.length && (
-                        <div className="mt-2 text-xs text-muted-foreground">
-                          Tool: {msg.tool_name}
-                        </div>
-                      )}
-
-                      {msg.role === "assistant" &&
-                        loading &&
-                        idx === messages.length - 1 && (
-                          <div className="flex items-center gap-2 mt-2 text-muted-foreground">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            <span className="text-sm">
+                        {/* Thinking / generating status */}
+                        {msg.role === "assistant" && loading && idx === messages.length - 1 && (
+                          <div className="flex items-center gap-1.5 mt-2 text-muted-foreground">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <span className="text-xs">
                               {msg.tools?.some((t) => t.status === "running")
-                                ? `Using ${msg.tools.find((t) => t.status === "running")?.name ?? "tools"}...`
-                                : msg.thinking
-                                ? "Thinking..."
-                                : "Generating..."}
+                                ? `Using ${msg.tools.find((t) => t.status === "running")?.name}…`
+                                : msg.thinking ? "Thinking…" : "Generating…"}
                             </span>
                           </div>
                         )}
-                    </CardContent>
-                  </Card>
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
+                      </div>
+
+                      {/* Tool call panel — outside the bubble */}
+                      {msg.tools && msg.tools.length > 0 && (
+                        <div className="w-full max-w-full">
+                          <ToolCallPanel
+                            tools={msg.tools}
+                            isStreaming={loading && idx === messages.length - 1}
+                          />
+                        </div>
+                      )}
+
+                      {msg.tool_name && !msg.tools?.length && (
+                        <p className="text-xs text-muted-foreground px-1">Tool: {msg.tool_name}</p>
+                      )}
+                    </div>
+
+                    {/* User avatar */}
+                    {msg.role === "user" && (
+                      <div className="h-8 w-8 rounded-xl bg-muted flex items-center justify-center shrink-0 mt-0.5 text-sm font-bold text-muted-foreground border border-border/60">
+                        Y
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
             </div>
 
-            <form onSubmit={handleSend} className="border-t p-3 md:p-4 flex gap-2 bg-background">
-              <Input
-                value={input}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
-                placeholder="Plan a trip to Paris..."
-                disabled={loading}
-                className="flex-1"
-              />
-              <Button type="submit" disabled={loading || !input.trim()}>
-                {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </Button>
-            </form>
+            {/* Composer */}
+            <div className="border-t border-border/60 bg-background/95 backdrop-blur px-4 py-3 shrink-0">
+              <form onSubmit={handleSend} className="max-w-3xl mx-auto">
+                <div className="flex items-end gap-2 rounded-2xl border border-border/80 bg-card shadow-sm px-3 py-2 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/40 transition-all">
+                  <textarea
+                    value={input}
+                    onChange={(e) => {
+                      setInput(e.target.value)
+                      e.target.style.height = "auto"
+                      e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px"
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault()
+                        handleSend(e as any)
+                      }
+                    }}
+                    placeholder="Plan a trip, find restaurants, calculate routes…"
+                    disabled={loading}
+                    rows={1}
+                    className="flex-1 resize-none bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 py-1 leading-relaxed max-h-40 overflow-y-auto"
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading || !input.trim()}
+                    className="h-9 w-9 rounded-xl bg-primary text-white flex items-center justify-center shrink-0 hover:bg-primary/90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md shadow-primary/20 mb-0.5"
+                  >
+                    {loading
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <Send className="h-4 w-4" />
+                    }
+                  </button>
+                </div>
+                <p className="text-[11px] text-muted-foreground/50 text-center mt-2">
+                  Press Enter to send · Shift+Enter for new line
+                </p>
+              </form>
+            </div>
           </>
         ) : (
-          <div className="flex h-full items-center justify-center p-4">
-            <Card className="w-full max-w-md">
-              <CardHeader>
-                <CardTitle className="text-xl md:text-2xl">Travel Planner Chat</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground mb-4">
-                  Select a chat or create a new one to start planning your trip.
-                </p>
-                <Button onClick={handleNewThread} className="w-full">
-                  <MessageSquarePlus className="mr-2 h-4 w-4" />
-                  New Chat
-                </Button>
-              </CardContent>
-            </Card>
+          /* Welcome screen — no thread selected */
+          <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 animate-fade-up">
+            <div className="h-20 w-20 rounded-3xl bg-primary/10 flex items-center justify-center mb-6 animate-pulse-glow">
+              <MapPin className="h-10 w-10 text-primary" />
+            </div>
+            <h2 className="text-3xl font-bold tracking-tight mb-2">Voyager AI</h2>
+            <p className="text-muted-foreground text-center max-w-sm mb-10">
+              Your intelligent travel companion. Plan trips, explore destinations,
+              and get real-time insights powered by Google Maps.
+            </p>
+
+            {/* Suggestion chips */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-xl mb-8">
+              {SUGGESTIONS.map((s, i) => (
+                <button
+                  key={s.text}
+                  onClick={async () => {
+                    const thread = await createThread()
+                    setThreads((prev) => [thread, ...prev])
+                    setActiveThreadId(thread.id)
+                    setInput(s.text)
+                  }}
+                  className="flex items-center gap-3 px-4 py-3.5 rounded-2xl border border-border/70 bg-card hover:bg-muted/50 hover:border-primary/30 active:scale-[0.98] transition-all text-left text-sm font-medium shadow-sm animate-fade-up"
+                  style={{ animationDelay: `${i * 80}ms` }}
+                >
+                  <span className="text-xl shrink-0">{s.icon}</span>
+                  <span className="text-muted-foreground">{s.text}</span>
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={handleNewThread}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-white font-semibold text-sm hover:bg-primary/90 active:scale-[0.98] transition-all shadow-lg shadow-primary/25"
+            >
+              <MessageSquarePlus className="h-4 w-4" />
+              Start a new chat
+            </button>
           </div>
         )}
 
+        {/* Error toast */}
         {error && (
-          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-destructive text-destructive-foreground px-4 py-2 rounded-md text-sm max-w-[90%] text-center">
-            {error}
+          <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-50 bg-destructive text-destructive-foreground px-5 py-3 rounded-2xl text-sm max-w-[90%] text-center shadow-xl animate-fade-up">
+            ⚠ {error}
           </div>
         )}
       </main>
     </div>
   )
 }
-
 
