@@ -10,8 +10,7 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  server: {
-    // Serve index.html for all routes so /chat/<id> works in dev
-    historyApiFallback: true,
-  },
+  // appType 'spa' (default) already serves index.html for all non-asset routes
+  // in dev mode — no extra config needed. Nginx handles it in production via
+  // try_files $uri $uri/ /index.html in nginx.conf.
 })
