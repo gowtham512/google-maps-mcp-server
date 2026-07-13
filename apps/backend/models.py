@@ -9,9 +9,22 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class User(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    email: str = Field(unique=True, index=True)
+    hashed_password: str
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+    threads: list["Thread"] = Relationship(back_populates="user")
+
+
 class Thread(SQLModel, table=True):
     id: str = Field(primary_key=True)
     title: str = "New Chat"
+    user_id: int | None = Field(default=None, foreign_key="user.id", index=True)
     created_at: datetime = Field(
         default_factory=utc_now,
         sa_column=Column(DateTime(timezone=True), nullable=False),
@@ -22,6 +35,7 @@ class Thread(SQLModel, table=True):
     )
 
     messages: list["Message"] = Relationship(back_populates="thread")
+    user: User | None = Relationship(back_populates="threads")
 
 
 class Message(SQLModel, table=True):

@@ -71,25 +71,39 @@ async def init_db(drop_all: bool = False):
 
 
 async def migrate_db():
-    """Add columns that are missing in the message table.
+    """Add columns that are missing in the message/thread tables.
 
     Works for both SQLite (legacy/dev) and Postgres (Neon/production).
+    The User table is created by SQLModel.metadata.create_all in init_db,
+    so here we only need to backfill new columns on existing tables.
     """
     engine = get_engine()
     async with engine.begin() as conn:
 
         def _check_columns(sync_conn):
             inspector = sa_inspect(sync_conn)
-            columns = {c["name"] for c in inspector.get_columns("message")}
-            return columns
+            tables = inspector.get_table_names()
+            result = {}
+            for table in tables:
+                result[table] = {c["name"] for c in inspector.get_columns(table)}
+            return result
 
-        columns = await conn.run_sync(_check_columns)
-        if "artifact_type" not in columns:
+        table_columns = await conn.run_sync(_check_columns)
+
+        # --- message table ---
+        message_cols = table_columns.get("message", set())
+        if "artifact_type" not in message_cols:
             await conn.execute(text("ALTER TABLE message ADD COLUMN artifact_type VARCHAR"))
-        if "artifact_data" not in columns:
+        if "artifact_data" not in message_cols:
             await conn.execute(text("ALTER TABLE message ADD COLUMN artifact_data TEXT"))
-        if "tool_call_id" not in columns:
+        if "tool_call_id" not in message_cols:
             await conn.execute(text("ALTER TABLE message ADD COLUMN tool_call_id VARCHAR"))
+
+        # --- thread table ---
+        thread_cols = table_columns.get("thread", set())
+        if "user_id" not in thread_cols:
+            # Allow NULL so existing threads survive the migration
+            await conn.execute(text("ALTER TABLE thread ADD COLUMN user_id INTEGER"))
 
 
 @asynccontextmanager

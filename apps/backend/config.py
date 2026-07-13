@@ -19,6 +19,9 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://user:password@host.neon.tech/dbname?sslmode=require"
 
+    # A long random secret used to sign JWTs.  Change this in production.
+    jwt_secret: str = "CHANGE_ME_use_a_long_random_secret_in_production"
+
     port: int = 8000
 
 

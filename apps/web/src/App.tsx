@@ -1,21 +1,27 @@
 import { useEffect, useRef, useState } from "react"
-import { Loader2, MapPin, Menu, MessageSquarePlus, Send, Trash2, Wrench, X } from "lucide-react"
+import { Loader2, LogOut, MapPin, Menu, MessageSquarePlus, Send, Trash2, Wrench, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { LoginPage } from "@/components/LoginPage"
+import { SignupPage } from "@/components/SignupPage"
 import { OpenUIMessage } from "@/components/OpenUIMessage"
 import {
   createThread,
   deleteThread,
   getThread,
+  getToken,
   listThreads,
+  logout,
   sendMessageStream,
   type Message,
   type StreamEvent,
   type Thread,
   type ToolCall,
 } from "@/lib/api"
+
+type AuthView = "login" | "signup"
 
 export default function App() {
   const [threads, setThreads] = useState<Thread[]>([])
@@ -27,6 +33,42 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  // ---------------------------------------------------------------------------
+  // Auth state
+  // ---------------------------------------------------------------------------
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => !!getToken())
+  const [authView, setAuthView] = useState<AuthView>("login")
+
+  function handleAuthSuccess() {
+    setIsAuthenticated(true)
+  }
+
+  function handleLogout() {
+    logout()
+    setIsAuthenticated(false)
+    setThreads([])
+    setActiveThreadId(null)
+    setMessages([])
+  }
+
+  // Show auth screens when not logged in
+  if (!isAuthenticated) {
+    if (authView === "signup") {
+      return (
+        <SignupPage
+          onSuccess={handleAuthSuccess}
+          onSwitchToLogin={() => setAuthView("login")}
+        />
+      )
+    }
+    return (
+      <LoginPage
+        onSuccess={handleAuthSuccess}
+        onSwitchToSignup={() => setAuthView("signup")}
+      />
+    )
+  }
 
   useEffect(() => {
     loadThreads()
@@ -328,6 +370,17 @@ export default function App() {
               </Button>
             </div>
           ))}
+        </div>
+        {/* Logout */}
+        <div className="p-3 border-t">
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-muted-foreground hover:text-foreground"
+            onClick={handleLogout}
+          >
+            <LogOut className="mr-2 h-4 w-4" />
+            Sign out
+          </Button>
         </div>
       </aside>
 

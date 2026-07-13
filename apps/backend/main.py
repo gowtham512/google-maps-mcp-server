@@ -6,7 +6,7 @@ from typing import Any
 
 import io
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -15,9 +15,10 @@ from sqlalchemy.orm import selectinload
 
 from agent import run_agent_loop, run_agent_loop_stream
 from artifacts import ARTIFACT_FORMATS, build_json, build_pdf, build_pptx, load_artifact, resolve_format, sanitize_filename
+from auth import create_access_token, get_current_user_id, hash_password, verify_password
 from config import settings
 from db import close_db, get_session, init_db, migrate_db
-from models import Message, Thread
+from models import Message, Thread, User
 
 
 class ChatRequest(BaseModel):
@@ -54,6 +55,23 @@ class MessageOut(BaseModel):
     artifact_type: str | None = None
     artifact_data: str | None = None
     created_at: datetime
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: int
+    email: str
 
 
 @asynccontextmanager
@@ -165,12 +183,45 @@ async def health():
     return {"status": "ok"}
 
 
+# ---------------------------------------------------------------------------
+# Auth endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.post("/auth/register", response_model=AuthResponse, status_code=201)
+async def register(req: RegisterRequest):
+    """Create a new user account and return an access token."""
+    async with get_session() as session:
+        existing = await session.exec(select(User).where(User.email == req.email))
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Email already registered")
+        user = User(email=req.email, hashed_password=hash_password(req.password))
+        session.add(user)
+        await session.flush()
+        await session.refresh(user)
+        token = create_access_token(user.id, user.email)
+        return AuthResponse(access_token=token, user_id=user.id, email=user.email)
+
+
+@app.post("/auth/login", response_model=AuthResponse)
+async def login(req: LoginRequest):
+    """Authenticate an existing user and return an access token."""
+    async with get_session() as session:
+        result = await session.exec(select(User).where(User.email == req.email))
+        user = result.scalar_one_or_none()
+        if not user or not verify_password(req.password, user.hashed_password):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        token = create_access_token(user.id, user.email)
+        return AuthResponse(access_token=token, user_id=user.id, email=user.email)
+
+
 @app.post("/threads", response_model=ThreadResponse)
-async def create_thread(req: CreateThreadRequest):
+async def create_thread(req: CreateThreadRequest, user_id: int = Depends(get_current_user_id)):
     thread_id = str(uuid.uuid4())
     thread = Thread(
         id=thread_id,
         title=req.title,
+        user_id=user_id,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -187,9 +238,13 @@ async def create_thread(req: CreateThreadRequest):
 
 
 @app.get("/threads", response_model=list[ThreadResponse])
-async def list_threads():
+async def list_threads(user_id: int = Depends(get_current_user_id)):
     async with get_session() as session:
-        result = await session.exec(select(Thread).order_by(Thread.updated_at.desc()))
+        result = await session.exec(
+            select(Thread)
+            .where(Thread.user_id == user_id)
+            .order_by(Thread.updated_at.desc())
+        )
         threads = result.scalars().all()
         return [
             ThreadResponse(id=t.id, title=t.title, created_at=t.created_at, updated_at=t.updated_at)
@@ -198,11 +253,12 @@ async def list_threads():
 
 
 @app.get("/threads/{thread_id}")
-async def get_thread(thread_id: str):
+async def get_thread(thread_id: str, user_id: int = Depends(get_current_user_id)):
     async with get_session() as session:
         result = await session.exec(
             select(Thread)
             .where(Thread.id == thread_id)
+            .where(Thread.user_id == user_id)
             .options(selectinload(Thread.messages))  # type: ignore[arg-type]
         )
         thread = result.scalar_one_or_none()
@@ -216,9 +272,11 @@ async def get_thread(thread_id: str):
 
 
 @app.delete("/threads/{thread_id}")
-async def delete_thread(thread_id: str):
+async def delete_thread(thread_id: str, user_id: int = Depends(get_current_user_id)):
     async with get_session() as session:
-        result = await session.exec(select(Thread).where(Thread.id == thread_id))
+        result = await session.exec(
+            select(Thread).where(Thread.id == thread_id).where(Thread.user_id == user_id)
+        )
         thread = result.scalar_one_or_none()
         if not thread:
             raise HTTPException(status_code=404, detail="Thread not found")
@@ -248,6 +306,7 @@ async def export_message_artifact(
     thread_id: str,
     message_id: str,
     format: str = "auto",
+    user_id: int = Depends(get_current_user_id),
 ):
     """Download an artifact for a specific assistant message."""
     if format not in {*ARTIFACT_FORMATS, "auto"}:
@@ -281,7 +340,11 @@ async def export_message_artifact(
 
 
 @app.get("/threads/{thread_id}/artifact/latest")
-async def export_latest_artifact(thread_id: str, format: str = "auto"):
+async def export_latest_artifact(
+    thread_id: str,
+    format: str = "auto",
+    user_id: int = Depends(get_current_user_id),
+):
     """Download an artifact from the most recent assistant message with artifact data."""
     if format not in {*ARTIFACT_FORMATS, "auto"}:
         raise HTTPException(
@@ -331,9 +394,11 @@ async def export_latest_artifact(thread_id: str, format: str = "auto"):
 
 
 @app.post("/threads/{thread_id}/chat", response_model=ChatResponse)
-async def chat(thread_id: str, req: ChatRequest, accept: str = Header(default="")):
+async def chat(thread_id: str, req: ChatRequest, accept: str = Header(default=""), user_id: int = Depends(get_current_user_id)):
     async with get_session() as session:
-        result = await session.exec(select(Thread).where(Thread.id == thread_id))
+        result = await session.exec(
+            select(Thread).where(Thread.id == thread_id).where(Thread.user_id == user_id)
+        )
         thread = result.scalar_one_or_none()
         if not thread:
             raise HTTPException(status_code=404, detail="Thread not found")
