@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { Loader2, LogOut, MapPin, Menu, MessageSquarePlus, Send, Trash2, Wrench, X } from "lucide-react"
+import { Loader2, LogOut, MapPin, Menu, MessageSquarePlus, Send, Trash2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { LoginPage } from "@/components/LoginPage"
 import { SignupPage } from "@/components/SignupPage"
 import { OpenUIMessage } from "@/components/OpenUIMessage"
+import { ToolCallPanel } from "@/components/ToolCallPanel"
 import {
   createThread,
   deleteThread,
@@ -256,12 +257,13 @@ export default function App() {
           } else if (event.type === "tool_call" && event.name) {
             const toolName = event.name
             const toolId = event.id || toolName
+            const toolInput = event.input
             setMessages((prev) =>
               updateLastAssistant(prev, (msg) => {
                 const tools = msg.tools ? [...msg.tools] : []
                 const existing = tools.find((t) => (t.id || t.name) === toolId && t.status === "running")
                 if (!existing) {
-                  tools.push({ id: toolId, name: toolName, status: "running" })
+                  tools.push({ id: toolId, name: toolName, input: toolInput, status: "running" })
                 }
                 return { ...msg, tools }
               }),
@@ -434,11 +436,10 @@ export default function App() {
                       )}
 
                       {msg.tools && msg.tools.length > 0 && (
-                        <div className="mt-3 space-y-1">
-                          {msg.tools.map((tool, tidx) => (
-                            <ToolBadge key={tidx} tool={tool} />
-                          ))}
-                        </div>
+                        <ToolCallPanel
+                          tools={msg.tools}
+                          isStreaming={loading && idx === messages.length - 1}
+                        />
                       )}
 
                       {msg.tool_name && !msg.tools?.length && (
@@ -514,16 +515,4 @@ export default function App() {
   )
 }
 
-function ToolBadge({ tool }: { tool: ToolCall }) {
-  return (
-    <div className="flex items-center gap-2 text-xs md:text-sm rounded-md border px-2 py-1.5 bg-muted/50">
-      <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
-      <span className="font-medium truncate max-w-[180px] sm:max-w-[240px]">{tool.name}</span>
-      {tool.status === "running" ? (
-        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-      ) : (
-        <span className="text-muted-foreground shrink-0">Done</span>
-      )}
-    </div>
-  )
-}
+

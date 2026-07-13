@@ -419,7 +419,7 @@ async def run_agent_loop_stream(
                         f"of {max_tool_calls_per_turn} has been reached. "
                         "Use the information already gathered to answer."
                     )
-                    yield {"type": "tool_call", "id": tool_call_id, "name": tool_name}
+                    yield {"type": "tool_call", "id": tool_call_id, "name": tool_name, "input": json.dumps(arguments)}
                     yield {"type": "tool_result", "id": tool_call_id, "name": tool_name, "result": skipped}
                     context.append(
                         {
@@ -432,7 +432,7 @@ async def run_agent_loop_stream(
                     continue
 
                 tool_calls_used.append(tool_name)
-                yield {"type": "tool_call", "id": tool_call_id, "name": tool_name}
+                yield {"type": "tool_call", "id": tool_call_id, "name": tool_name, "input": json.dumps(arguments)}
 
                 tool_result = await _execute_tool(tool_name, arguments)
                 yield {"type": "tool_result", "id": tool_call_id, "name": tool_name, "result": str(tool_result)}

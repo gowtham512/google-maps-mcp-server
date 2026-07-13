@@ -155,6 +155,7 @@ export async function sendMessage(threadId: string, message: string): Promise<Ch
 export interface ToolCall {
   id?: string
   name: string
+  input?: string       // JSON-serialized tool arguments
   result?: string
   status: "running" | "done"
 }
@@ -164,6 +165,7 @@ export interface StreamEvent {
   id?: string
   delta?: string
   name?: string
+  input?: string       // JSON-serialized tool arguments (on tool_call events)
   result?: string
   reply?: string
   openui_code?: string | null
