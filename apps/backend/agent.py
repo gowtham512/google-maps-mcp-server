@@ -357,7 +357,7 @@ async def run_agent_loop_stream(
             "thinking": accumulated_thinking or None,
             "tool_calls": [_tool_call_to_dict(c) for c in accumulated_tool_calls] if accumulated_tool_calls else None,
         }
-        context.append(assistant_message)
+        context.append(_sanitize_for_ollama(assistant_message))
 
         if not accumulated_tool_calls:
             break
