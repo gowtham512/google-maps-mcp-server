@@ -13,6 +13,7 @@ import {
   listThreads,
   logout,
   sendMessageStream,
+  updateThread,
   type Message,
   type StreamEvent,
   type Thread,
@@ -28,7 +29,11 @@ export default function App() {
 
   // ── Chat state ───────────────────────────────────────────────────────────
   const [threads, setThreads]           = useState<Thread[]>([])
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
+  // Initialise activeThreadId from URL: /chat/<thread_id>
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(() => {
+    const match = window.location.pathname.match(/\/chat\/([^/]+)/)
+    return match ? match[1] : null
+  })
   const [messages, setMessages]         = useState<Message[]>([])
   const [input, setInput]               = useState("")
   const [loading, setLoading]           = useState(false)
@@ -55,6 +60,25 @@ export default function App() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages, loading])
+
+  // Sync activeThreadId → URL
+  useEffect(() => {
+    const current = window.location.pathname
+    const target  = activeThreadId ? `/chat/${activeThreadId}` : "/"
+    if (current !== target) {
+      window.history.pushState(null, "", target)
+    }
+  }, [activeThreadId])
+
+  // Handle browser back/forward
+  useEffect(() => {
+    function onPopState() {
+      const match = window.location.pathname.match(/\/chat\/([^/]+)/)
+      setActiveThreadId(match ? match[1] : null)
+    }
+    window.addEventListener("popstate", onPopState)
+    return () => window.removeEventListener("popstate", onPopState)
+  }, [])
 
   // ── Auth handlers ────────────────────────────────────────────────────────
   function handleAuthSuccess() {
@@ -91,6 +115,17 @@ export default function App() {
     } catch (err) {
       setError("Failed to create thread")
       console.error(err)
+    }
+  }
+
+  /** Rename a thread from its first user message (first 40 chars, trimmed). */
+  async function autoTitleThread(threadId: string, firstMessage: string) {
+    try {
+      const title = firstMessage.trim().slice(0, 40) || "New Chat"
+      const updated = await updateThread(threadId, title)
+      setThreads((prev) => prev.map((t) => t.id === threadId ? { ...t, title: updated.title } : t))
+    } catch {
+      // Non-critical — silently ignore
     }
   }
 
@@ -210,6 +245,13 @@ export default function App() {
     }
     setLoading(true)
     setError(null)
+
+    // Auto-title the thread from the first user message
+    const currentThread = threads.find((t) => t.id === activeThreadId)
+    const isFirstMessage = !currentThread || currentThread.title === "New Chat"
+    if (isFirstMessage && activeThreadId) {
+      autoTitleThread(activeThreadId, userMessage)
+    }
 
     abortRef.current?.abort()
     const controller   = new AbortController()

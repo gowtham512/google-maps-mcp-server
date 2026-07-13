@@ -10,4 +10,8 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  server: {
+    // Serve index.html for all routes so /chat/<id> works in dev
+    historyApiFallback: true,
+  },
 })

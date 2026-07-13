@@ -287,6 +287,32 @@ async def delete_thread(thread_id: str, user_id: int = Depends(get_current_user_
     return {"thread_id": thread_id, "status": "deleted"}
 
 
+class UpdateThreadRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+
+
+@app.patch("/threads/{thread_id}", response_model=ThreadResponse)
+async def update_thread(thread_id: str, req: UpdateThreadRequest, user_id: int = Depends(get_current_user_id)):
+    """Update thread title."""
+    async with get_session() as session:
+        result = await session.exec(
+            select(Thread).where(Thread.id == thread_id).where(Thread.user_id == user_id)
+        )
+        thread = result.scalar_one_or_none()
+        if not thread:
+            raise HTTPException(status_code=404, detail="Thread not found")
+        thread.title = req.title
+        thread.updated_at = datetime.now(timezone.utc)
+        await session.flush()
+        await session.refresh(thread)
+        return ThreadResponse(
+            id=thread.id,
+            title=thread.title,
+            created_at=thread.created_at,
+            updated_at=thread.updated_at,
+        )
+
+
 async def _load_message_artifact(thread_id: str, message_id: str) -> tuple[dict[str, Any], str]:
     """Load a message's artifact data and title, or raise 404 if unavailable."""
     async with get_session() as session:

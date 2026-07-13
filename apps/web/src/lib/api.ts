@@ -142,6 +142,16 @@ export async function deleteThread(threadId: string): Promise<void> {
   if (!resp.ok) throw new Error("Failed to delete thread")
 }
 
+export async function updateThread(threadId: string, title: string): Promise<Thread> {
+  const resp = await fetch(`${API_BASE}/threads/${threadId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeader() },
+    body: JSON.stringify({ title }),
+  })
+  if (!resp.ok) throw new Error("Failed to update thread")
+  return resp.json()
+}
+
 export async function sendMessage(threadId: string, message: string): Promise<ChatResponse> {
   const resp = await fetch(`${API_BASE}/threads/${threadId}/chat`, {
     method: "POST",
