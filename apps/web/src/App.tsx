@@ -253,6 +253,8 @@ export default function App() {
       const hydrated = hydrateTools(data.messages)
 
       if (preserveCurrentTools) {
+        // During streaming: keep live tool status for tools still running,
+        // but use the DB status for tools that are already done in the DB.
         setMessages((prev) => {
           const liveMap = new Map<string, ToolCall>()
           for (const m of prev)
@@ -264,7 +266,12 @@ export default function App() {
               ...m,
               tools: m.tools.map((t) => {
                 const live = t.id ? liveMap.get(t.id) : undefined
-                return live ? { ...live } : t
+                // DB says done → use DB version (authoritative)
+                // DB says running but live has it as done → use live
+                // Otherwise use DB version
+                if (t.status === "done") return t
+                if (live?.status === "done") return { ...t, status: "done" as const, result: live.result }
+                return live ?? t
               }),
             }
           })
@@ -351,6 +358,8 @@ export default function App() {
                 artifact_type: event.artifact_type ?? null,
                 artifact_data: event.artifact_data ?? null,
                 content: event.openui_code ? event.reply || m.content : m.content,
+                // Mark every tool as done — stream is complete
+                tools: (m.tools || []).map((t) => t.status === "running" ? { ...t, status: "done" as const } : t),
               })),
             )
           }
