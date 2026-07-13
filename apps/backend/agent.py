@@ -213,13 +213,15 @@ tools_stack = Stack([tools_header, {tool_refs}], "column", "xs")
         tool_children = ", tools_stack"
 
     body_lines = "\n".join(f"  {item}" for item in body_items)
+    # Build bottom-up: leaf nodes first, root last — OpenUI Lang resolves references
+    # top-to-bottom so forward references (root referencing card before card is defined)
+    # cause broken renders.
     code = f"""\
-root = Stack([card], "column", "m")
+{body_lines}
+{tool_lines}body = Stack([{body_refs}], "column", "s")
 card = Card([title, body{tool_children}])
 title = CardHeader("Travel Plan")
-body = Stack([{body_refs}], "column", "s")
-{body_lines}
-{tool_lines}""".strip()
+root = Stack([card], "column", "m")""".strip()
     return code
 
 
@@ -350,7 +352,8 @@ async def run_agent_loop_stream(
         if not accumulated_tool_calls:
             break
 
-        for call in accumulated_tool_calls:
+        # Iterate the already-converted dicts from assistant_message, not the raw SDK objects.
+        for call in (assistant_message["tool_calls"] or []):
             fn = call.get("function", {})
             tool_name = fn.get("name", "")
             arguments = fn.get("arguments", {}) or {}
@@ -416,8 +419,13 @@ async def run_agent_loop_stream(
 
     full_history.extend(new_messages)
 
-    final_message = new_messages[-1] if new_messages else {"role": "assistant", "content": ""}
-    reply = final_message.get("content", "")
+    # Always pick the last assistant message as the final reply — the last message
+    # in new_messages could be a tool result or system message in edge cases.
+    final_message = next(
+        (m for m in reversed(new_messages) if m.get("role") == "assistant"),
+        {"role": "assistant", "content": ""},
+    )
+    reply = final_message.get("content", "") or ""
 
     # Extract structured artifact data before stripping the marker from the reply.
     artifact_data, artifact_type = extract_artifact_data(reply)
@@ -501,7 +509,7 @@ async def _execute_tool(tool_name: str, arguments: dict[str, Any]) -> str:
             return await find_nearby_places(
                 location_address=arguments.get("location_address", ""),
                 place_type=arguments.get("place_type", "restaurant"),
-                radius_meters=int(arguments.get("radius_meters", 5000)),
+                radius_meters=int(float(arguments.get("radius_meters", 5000))),
                 region_code=arguments.get("region_code", "US"),
             )
         return f"Unknown tool: {tool_name}"

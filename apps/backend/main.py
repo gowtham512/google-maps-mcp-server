@@ -303,9 +303,31 @@ async def export_latest_artifact(thread_id: str, format: str = "auto"):
         artifact = load_artifact(msg.artifact_data)
         if not artifact:
             raise HTTPException(status_code=404, detail="No artifact found in this thread")
-        message_id = str(msg.id)
+        # Read everything we need before the session closes — avoids a second nested session.
+        artifact_data_raw = msg.artifact_data
+        slug = sanitize_filename(artifact.get("title", "artifact"))
 
-    return await export_message_artifact(thread_id, message_id, format)
+    resolved_format = resolve_format(artifact.get("type"), format)
+
+    if resolved_format == "json":
+        data = build_json(artifact)
+        media_type = "application/json"
+        ext = "json"
+    elif resolved_format == "pptx":
+        data = await build_pptx(artifact)
+        media_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        ext = "pptx"
+    else:  # pdf
+        data = await build_pdf(artifact)
+        media_type = "application/pdf"
+        ext = "pdf"
+
+    filename = f"{slug}.{ext}"
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.post("/threads/{thread_id}/chat", response_model=ChatResponse)
