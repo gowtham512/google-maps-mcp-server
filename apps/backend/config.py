@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     maps_api_base_url_places: str = "https://places.googleapis.com/v1"
     maps_api_base_url_routes: str = "https://routes.googleapis.com/directions/v2"
     maps_api_base_url_geocoding: str = "https://maps.googleapis.com/maps/api/geocode/json"
+    maps_api_base_url_weather: str = "https://weather.googleapis.com/v1"
+    maps_api_base_url_air_quality: str = "https://airquality.googleapis.com/v1"
+    maps_api_base_url_elevation: str = "https://maps.googleapis.com/maps/api/elevation/json"
+    maps_api_base_url_timezone: str = "https://maps.googleapis.com/maps/api/timezone/json"
 
     database_url: str = "postgresql+asyncpg://user:password@host.neon.tech/dbname?sslmode=require"
 

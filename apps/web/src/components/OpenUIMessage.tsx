@@ -1,13 +1,13 @@
 import * as React from "react"
 import { useState } from "react"
 import { Renderer } from "@openuidev/react-lang"
-import { openuiLibrary } from "@openuidev/react-ui"
 import "@openuidev/react-ui/components.css"
 import { Download, FileJson, FileText, Loader2, Presentation } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { ArtifactMessage } from "@/components/ArtifactMessage"
 import { downloadArtifact, type ArtifactFormat } from "@/lib/api"
+import { mergedTravelLibrary } from "@/lib/customLibrary"
 
 interface OpenUIMessageProps {
   threadId: string
@@ -83,7 +83,7 @@ export function OpenUIMessage({
         </div>
       )}
       <Renderer
-        library={openuiLibrary}
+        library={mergedTravelLibrary}
         response={code}
         isStreaming={false}
         onError={(errors) => {

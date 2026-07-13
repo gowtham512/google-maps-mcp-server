@@ -1,6 +1,5 @@
 import json
 import asyncio
-import json
 import threading
 from pathlib import Path
 from typing import Any
@@ -8,10 +7,30 @@ from typing import Any
 import ollama
 
 from config import settings
-from maps_tools import compute_route, find_nearby_places, geocode_address, search_places
+from maps_tools import (
+    compute_route,
+    find_nearby_places,
+    geocode_address,
+    get_air_quality,
+    get_elevation,
+    get_place_details,
+    get_timezone,
+    get_weather,
+    search_places,
+)
 
 
-AVAILABLE_TOOLS = [search_places, geocode_address, compute_route, find_nearby_places]
+AVAILABLE_TOOLS = [
+    search_places,
+    geocode_address,
+    compute_route,
+    find_nearby_places,
+    get_weather,
+    get_timezone,
+    get_place_details,
+    get_elevation,
+    get_air_quality,
+]
 
 # Ollama sync client — Ollama Cloud only supports the sync Client.
 # Streaming is bridged to async via a thread + asyncio.Queue in run_agent_loop_stream.
@@ -51,10 +70,41 @@ Available tools:
    - radius_meters is the search radius in meters (default 5000).
    - region_code: ISO 3166-1 alpha-2 country code used to bias geocoding.
 
+5. get_weather(location_address, include_forecast=True, forecast_days=5)
+   - Get current weather conditions and a multi-day forecast for a location.
+   - location_address: City or address, e.g. "Tokyo, Japan".
+   - include_forecast: Set to True to include the forecast (default True).
+   - forecast_days: Number of days to forecast, 1–10 (default 5).
+
+6. get_timezone(location_address)
+   - Get the local time zone and current local time at a destination.
+   - Returns time zone name, UTC offset, DST status, and the current local time.
+   - Use before recommending departure/arrival times for international trips.
+
+7. get_place_details(place_id)
+   - Get rich details for a specific place using its Google Maps place ID.
+   - Returns opening hours, phone number, website, editorial summary, photos, and top reviews.
+   - Always call search_places first to get the place_id, then call this for detail.
+   - Use photo URLs from this tool to populate the photoUrl field in PlaceCard.
+
+8. get_elevation(location_address)
+   - Get the altitude above sea level for a location.
+   - Useful for hiking, trekking, and altitude-sensitive travel planning.
+   - Returns elevation in metres and feet, plus data resolution.
+
+9. get_air_quality(location_address)
+   - Get the current Air Quality Index (AQI) and pollutant breakdown for a location.
+   - Returns Universal AQI, category (Good/Moderate/Unhealthy etc.), dominant pollutant,
+     individual pollutant concentrations, and health recommendations.
+   - Use for outdoor activity planning and health-sensitive travel.
+
 Rules for tool calls:
 - Use the exact enum values documented above; the backend validates them and rejects aliases.
 - For compute_route, always provide clear origin and destination addresses.
 - For find_nearby_places, prefer place types from the official list such as restaurant, hotel, gas_station, cafe, tourist_attraction, museum, shopping_mall, park.
+- When showing place search results, follow up with get_place_details to enrich the top result with photos and hours.
+- Always call get_weather when the user asks about trip planning — weather context improves recommendations.
+- Call get_timezone when the trip involves crossing time zones or the user asks about local time.
 
 You can make multiple tool calls in a loop until you have enough information to answer the user's request.
 
@@ -513,6 +563,28 @@ async def _execute_tool(tool_name: str, arguments: dict[str, Any]) -> str:
                 place_type=arguments.get("place_type", "restaurant"),
                 radius_meters=int(float(arguments.get("radius_meters", 5000))),
                 region_code=arguments.get("region_code", "US"),
+            )
+        if tool_name == "get_weather":
+            return await get_weather(
+                location_address=arguments.get("location_address", ""),
+                include_forecast=bool(arguments.get("include_forecast", True)),
+                forecast_days=int(float(arguments.get("forecast_days", 5))),
+            )
+        if tool_name == "get_timezone":
+            return await get_timezone(
+                location_address=arguments.get("location_address", ""),
+            )
+        if tool_name == "get_place_details":
+            return await get_place_details(
+                place_id=arguments.get("place_id", ""),
+            )
+        if tool_name == "get_elevation":
+            return await get_elevation(
+                location_address=arguments.get("location_address", ""),
+            )
+        if tool_name == "get_air_quality":
+            return await get_air_quality(
+                location_address=arguments.get("location_address", ""),
             )
         return f"Unknown tool: {tool_name}"
     except Exception as exc:  # noqa: BLE001 - tool errors must be surfaced to the model

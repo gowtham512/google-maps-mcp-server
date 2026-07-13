@@ -343,3 +343,437 @@ async def find_nearby_places(
             Default is "US".
     """
     return await MapsClient().find_nearby_places(location_address, place_type, radius_meters, region_code)
+
+
+# ---------------------------------------------------------------------------
+# Weather API
+# ---------------------------------------------------------------------------
+
+class WeatherClient:
+    """Client for the Google Maps Platform Weather API."""
+
+    _BASE = "https://weather.googleapis.com/v1"
+
+    def __init__(self, api_key: str | None = None):
+        self.api_key = api_key or settings.maps_api_key
+
+    async def _get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
+        params["key"] = self.api_key
+        url = f"{self._BASE}/{path}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, params=params)
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise httpx.HTTPStatusError(
+                    f"{exc.response.status_code} {exc.response.reason_phrase}: {exc.response.text}",
+                    request=exc.request,
+                    response=exc.response,
+                ) from exc
+            return resp.json()
+
+    async def get_current_conditions(self, lat: float, lng: float) -> str:
+        data = await self._get("currentConditions:lookup", {
+            "location.latitude": lat,
+            "location.longitude": lng,
+        })
+        cond = data.get("currentConditions", data)
+        temp_c = cond.get("temperature", {}).get("degrees")
+        feels_c = cond.get("feelsLikeTemperature", {}).get("degrees")
+        humidity = cond.get("relativeHumidity")
+        desc = cond.get("weatherCondition", {}).get("description", {}).get("text", "")
+        wind_speed = cond.get("wind", {}).get("speed", {}).get("value")
+        wind_unit = cond.get("wind", {}).get("speed", {}).get("unit", "KPH")
+        uv = cond.get("uvIndex")
+        visibility = cond.get("visibility", {}).get("distance")
+        vis_unit = cond.get("visibility", {}).get("unit", "KM")
+
+        lines = [f"Current conditions: {desc}"]
+        if temp_c is not None:
+            lines.append(f"Temperature: {temp_c}°C" + (f" (feels like {feels_c}°C)" if feels_c is not None else ""))
+        if humidity is not None:
+            lines.append(f"Humidity: {humidity}%")
+        if wind_speed is not None:
+            lines.append(f"Wind: {wind_speed} {wind_unit}")
+        if uv is not None:
+            lines.append(f"UV index: {uv}")
+        if visibility is not None:
+            lines.append(f"Visibility: {visibility} {vis_unit}")
+        return "\n".join(lines)
+
+    async def get_forecast(self, lat: float, lng: float, days: int = 5) -> str:
+        data = await self._get("forecast/days:lookup", {
+            "location.latitude": lat,
+            "location.longitude": lng,
+            "days": min(days, 10),
+        })
+        forecasts = data.get("forecastDays", [])
+        if not forecasts:
+            return "No forecast available."
+        lines = [f"{days}-day forecast:"]
+        for day in forecasts[:days]:
+            date_str = day.get("interval", {}).get("startTime", "")[:10]
+            day_part = day.get("daytimeForecast", {})
+            night_part = day.get("nighttimeForecast", {})
+            high = day.get("maxTemperature", {}).get("degrees")
+            low = day.get("minTemperature", {}).get("degrees")
+            desc = day_part.get("weatherCondition", {}).get("description", {}).get("text", "")
+            precip = day_part.get("precipitationProbability")
+            line = f"{date_str}: {desc}"
+            if high is not None and low is not None:
+                line += f" | High {high}°C / Low {low}°C"
+            if precip is not None:
+                line += f" | Rain {precip}%"
+            lines.append(line)
+        return "\n".join(lines)
+
+
+async def get_weather(location_address: str, include_forecast: bool = True, forecast_days: int = 5) -> str:
+    """Get current weather conditions and forecast for a location.
+
+    Args:
+        location_address: Address or city name to get weather for, e.g. "Tokyo, Japan".
+        include_forecast: Whether to include a multi-day forecast. Default True.
+        forecast_days: Number of forecast days to return (1–10). Default 5.
+    """
+    # Geocode first to get coordinates
+    maps = MapsClient()
+    geo_params = {"address": location_address, "key": maps.api_key}
+    geo_data = await maps._get(settings.maps_api_base_url_geocoding, geo_params)
+    results = geo_data.get("results", [])
+    if not results:
+        return f"Could not locate: {location_address}"
+    loc = results[0]["geometry"]["location"]
+    lat, lng = loc["lat"], loc["lng"]
+    formatted = results[0].get("formatted_address", location_address)
+
+    weather = WeatherClient()
+    parts = [f"Weather for {formatted}:", ""]
+
+    try:
+        current = await weather.get_current_conditions(lat, lng)
+        parts.append(current)
+    except Exception as exc:
+        parts.append(f"Current conditions unavailable: {exc}")
+
+    if include_forecast:
+        parts.append("")
+        try:
+            forecast = await weather.get_forecast(lat, lng, forecast_days)
+            parts.append(forecast)
+        except Exception as exc:
+            parts.append(f"Forecast unavailable: {exc}")
+
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Time Zone API
+# ---------------------------------------------------------------------------
+
+async def get_timezone(location_address: str) -> str:
+    """Get the local time zone and current local time for a location.
+
+    Args:
+        location_address: Address or city name to get time zone info for.
+    """
+    maps = MapsClient()
+    geo_params = {"address": location_address, "key": maps.api_key}
+    geo_data = await maps._get(settings.maps_api_base_url_geocoding, geo_params)
+    results = geo_data.get("results", [])
+    if not results:
+        return f"Could not locate: {location_address}"
+    loc = results[0]["geometry"]["location"]
+    lat, lng = loc["lat"], loc["lng"]
+    formatted = results[0].get("formatted_address", location_address)
+
+    timestamp = int(datetime.now(timezone.utc).timestamp())
+    url = "https://maps.googleapis.com/maps/api/timezone/json"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(url, params={
+            "location": f"{lat},{lng}",
+            "timestamp": timestamp,
+            "key": maps.api_key,
+        })
+        resp.raise_for_status()
+        data = resp.json()
+
+    status = data.get("status")
+    if status != "OK":
+        return f"Time zone lookup failed for {formatted}: {status}"
+
+    tz_id = data.get("timeZoneId", "Unknown")
+    tz_name = data.get("timeZoneName", "")
+    raw_offset = data.get("rawOffset", 0)        # seconds from UTC (no DST)
+    dst_offset = data.get("dstOffset", 0)        # DST offset in seconds
+    total_offset = raw_offset + dst_offset
+    offset_hours = total_offset / 3600
+    sign = "+" if offset_hours >= 0 else ""
+
+    # Compute local time
+    local_ts = timestamp + total_offset
+    local_dt = datetime.fromtimestamp(local_ts, tz=timezone.utc)
+    local_time_str = local_dt.strftime("%I:%M %p, %A %d %B %Y")
+
+    lines = [
+        f"Time zone for {formatted}:",
+        f"Time zone: {tz_name} ({tz_id})",
+        f"UTC offset: UTC{sign}{offset_hours:.1f}",
+        f"Local time: {local_time_str}",
+    ]
+    if dst_offset != 0:
+        lines.append(f"DST active: +{dst_offset // 3600} hour(s)")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Place Details (Places API v2)
+# ---------------------------------------------------------------------------
+
+async def get_place_details(place_id: str) -> str:
+    """Get detailed information about a specific place using its place ID.
+
+    Returns opening hours, phone number, website, rating, reviews, and photo references.
+
+    Args:
+        place_id: The Google Maps place ID (from search_places or geocode_address results).
+    """
+    maps = MapsClient()
+    url = f"{settings.maps_api_base_url_places}/places/{place_id}"
+    field_mask = (
+        "id,displayName,formattedAddress,location,"
+        "rating,userRatingCount,priceLevel,"
+        "regularOpeningHours,currentOpeningHours,"
+        "internationalPhoneNumber,websiteUri,"
+        "editorialSummary,reviews,"
+        "photos,types"
+    )
+    headers = {
+        "X-Goog-Api-Key": maps.api_key,
+        "X-Goog-FieldMask": field_mask,
+        "X-Goog-Maps-Solution-ID": _GMP_ATTRIBUTION,
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(url, headers=headers)
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise httpx.HTTPStatusError(
+                f"{exc.response.status_code} {exc.response.reason_phrase}: {exc.response.text}",
+                request=exc.request,
+                response=exc.response,
+            ) from exc
+        data = resp.json()
+
+    lines: list[str] = []
+    name = data.get("displayName", {}).get("text", "Unknown")
+    lines.append(f"Place: {name}")
+
+    address = data.get("formattedAddress")
+    if address:
+        lines.append(f"Address: {address}")
+
+    rating = data.get("rating")
+    count = data.get("userRatingCount")
+    if rating:
+        lines.append(f"Rating: {rating}/5" + (f" ({count} reviews)" if count else ""))
+
+    price = data.get("priceLevel")
+    if price:
+        price_map = {
+            "PRICE_LEVEL_FREE": "Free",
+            "PRICE_LEVEL_INEXPENSIVE": "$",
+            "PRICE_LEVEL_MODERATE": "$$",
+            "PRICE_LEVEL_EXPENSIVE": "$$$",
+            "PRICE_LEVEL_VERY_EXPENSIVE": "$$$$",
+        }
+        lines.append(f"Price: {price_map.get(price, price)}")
+
+    phone = data.get("internationalPhoneNumber")
+    if phone:
+        lines.append(f"Phone: {phone}")
+
+    website = data.get("websiteUri")
+    if website:
+        lines.append(f"Website: {website}")
+
+    summary = data.get("editorialSummary", {}).get("text")
+    if summary:
+        lines.append(f"Summary: {summary}")
+
+    # Opening hours
+    opening = data.get("currentOpeningHours") or data.get("regularOpeningHours", {})
+    is_open = opening.get("openNow")
+    if is_open is not None:
+        lines.append(f"Open now: {'Yes' if is_open else 'No'}")
+    weekday_text = opening.get("weekdayDescriptions", [])
+    if weekday_text:
+        lines.append("Hours:")
+        for day in weekday_text:
+            lines.append(f"  {day}")
+
+    # Photo references (first 3)
+    photos = data.get("photos", [])[:3]
+    if photos:
+        lines.append("Photo references:")
+        for photo in photos:
+            ref = photo.get("name", "")
+            if ref:
+                photo_url = (
+                    f"https://places.googleapis.com/v1/{ref}/media"
+                    f"?maxHeightPx=400&key={maps.api_key}"
+                )
+                lines.append(f"  {photo_url}")
+
+    # Top reviews (first 2)
+    reviews = data.get("reviews", [])[:2]
+    if reviews:
+        lines.append("Top reviews:")
+        for rev in reviews:
+            author = rev.get("authorAttribution", {}).get("displayName", "Anonymous")
+            rating_r = rev.get("rating")
+            text = rev.get("text", {}).get("text", "")[:200]
+            lines.append(f"  {author} ({rating_r}/5): {text}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Elevation API
+# ---------------------------------------------------------------------------
+
+async def get_elevation(location_address: str) -> str:
+    """Get the elevation (altitude above sea level) for a location.
+
+    Args:
+        location_address: Address or place name to get elevation for.
+    """
+    maps = MapsClient()
+    geo_params = {"address": location_address, "key": maps.api_key}
+    geo_data = await maps._get(settings.maps_api_base_url_geocoding, geo_params)
+    results = geo_data.get("results", [])
+    if not results:
+        return f"Could not locate: {location_address}"
+    loc = results[0]["geometry"]["location"]
+    lat, lng = loc["lat"], loc["lng"]
+    formatted = results[0].get("formatted_address", location_address)
+
+    url = "https://maps.googleapis.com/maps/api/elevation/json"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(url, params={
+            "locations": f"{lat},{lng}",
+            "key": maps.api_key,
+        })
+        resp.raise_for_status()
+        data = resp.json()
+
+    status = data.get("status")
+    if status != "OK":
+        return f"Elevation lookup failed for {formatted}: {status}"
+
+    elev_results = data.get("results", [])
+    if not elev_results:
+        return "No elevation data returned."
+
+    elevation_m = elev_results[0].get("elevation", 0)
+    elevation_ft = elevation_m * 3.28084
+    resolution_m = elev_results[0].get("resolution", 0)
+
+    return (
+        f"Elevation for {formatted}:\n"
+        f"Altitude: {elevation_m:.1f} m ({elevation_ft:.0f} ft) above sea level\n"
+        f"Data resolution: {resolution_m:.0f} m"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Air Quality API
+# ---------------------------------------------------------------------------
+
+async def get_air_quality(location_address: str) -> str:
+    """Get current air quality index (AQI) and pollutant breakdown for a location.
+
+    Args:
+        location_address: Address or city name to check air quality for.
+    """
+    maps = MapsClient()
+    geo_params = {"address": location_address, "key": maps.api_key}
+    geo_data = await maps._get(settings.maps_api_base_url_geocoding, geo_params)
+    results = geo_data.get("results", [])
+    if not results:
+        return f"Could not locate: {location_address}"
+    loc = results[0]["geometry"]["location"]
+    lat, lng = loc["lat"], loc["lng"]
+    formatted = results[0].get("formatted_address", location_address)
+
+    url = "https://airquality.googleapis.com/v1/currentConditions:lookup"
+    payload = {
+        "location": {"latitude": lat, "longitude": lng},
+        "universalAqi": True,
+        "extraComputations": ["POLLUTANT_CONCENTRATION", "LOCAL_AQI", "HEALTH_RECOMMENDATIONS"],
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Maps-Solution-ID": _GMP_ATTRIBUTION,
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            url,
+            headers=headers,
+            params={"key": maps.api_key},
+            json=payload,
+        )
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise httpx.HTTPStatusError(
+                f"{exc.response.status_code} {exc.response.reason_phrase}: {exc.response.text}",
+                request=exc.request,
+                response=exc.response,
+            ) from exc
+        data = resp.json()
+
+    lines = [f"Air quality for {formatted}:"]
+
+    # Universal AQI
+    indexes = data.get("indexes", [])
+    for idx in indexes:
+        code = idx.get("code", "")
+        aqi_val = idx.get("aqi")
+        category = idx.get("category", "")
+        dominant = idx.get("dominantPollutant", "")
+        color = idx.get("color", {})
+        if aqi_val is not None:
+            line = f"{code.upper()} AQI: {aqi_val} — {category}"
+            if dominant:
+                line += f" (dominant: {dominant})"
+            lines.append(line)
+
+    # Pollutant concentrations
+    pollutants = data.get("pollutants", [])
+    if pollutants:
+        lines.append("\nPollutant concentrations:")
+        for p in pollutants:
+            display = p.get("displayName", p.get("code", ""))
+            conc = p.get("concentration", {})
+            value = conc.get("value")
+            unit = conc.get("units", "")
+            if value is not None:
+                lines.append(f"  {display}: {value:.2f} {unit}")
+
+    # Health recommendations
+    recs = data.get("healthRecommendations", {})
+    if recs:
+        lines.append("\nHealth recommendations:")
+        # Show general + at-risk groups
+        general = recs.get("generalPopulation", "")
+        if general:
+            lines.append(f"  General: {general}")
+        elderly = recs.get("elderly", "")
+        if elderly:
+            lines.append(f"  Elderly: {elderly}")
+        lung = recs.get("lungDiseasePopulation", "")
+        if lung:
+            lines.append(f"  Lung conditions: {lung}")
+
+    return "\n".join(lines)
