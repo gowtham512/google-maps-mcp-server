@@ -79,14 +79,14 @@ export function LoginPage({ onSuccess, onSwitchToSignup }: LoginPageProps) {
             <div className="h-10 w-10 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center">
               <Plane className="h-5 w-5 text-white" />
             </div>
-            <span className="text-white font-bold text-xl tracking-tight">Voyager AI</span>
+            <span className="text-white font-bold text-xl tracking-tight">TripGenius</span>
           </div>
         </div>
 
         {/* Hero text */}
         <div className="relative z-10 animate-fade-up anim-delay-200">
           <p className="text-white/60 uppercase tracking-widest text-xs font-semibold mb-3">
-            Your AI Travel Companion
+            Plan smarter, travel better
           </p>
           <h1 className="text-white font-bold text-5xl xl:text-6xl leading-[1.1] mb-6">
             Explore the<br />
@@ -96,7 +96,7 @@ export function LoginPage({ onSuccess, onSwitchToSignup }: LoginPageProps) {
           </h1>
           <p className="text-white/70 text-lg max-w-md leading-relaxed">
             Plan multi-day itineraries, discover hidden gems, and get real-time
-            routes — all powered by Google Maps and AI.
+            routes in seconds.
           </p>
         </div>
 
@@ -119,7 +119,7 @@ export function LoginPage({ onSuccess, onSwitchToSignup }: LoginPageProps) {
           <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center">
             <Plane className="h-4 w-4 text-white" />
           </div>
-          <span className="font-bold text-lg tracking-tight">Voyager AI</span>
+          <span className="font-bold text-lg tracking-tight">TripGenius</span>
         </div>
 
         <div className="w-full max-w-[400px] animate-slide-right">
@@ -130,7 +130,7 @@ export function LoginPage({ onSuccess, onSwitchToSignup }: LoginPageProps) {
               <MapPin className="h-7 w-7 text-primary" />
             </div>
             <h2 className="text-3xl font-bold tracking-tight text-foreground">Welcome back</h2>
-            <p className="text-muted-foreground mt-1.5">Sign in to continue planning your adventures</p>
+            <p className="text-muted-foreground mt-1.5">Sign in to continue planning your trips</p>
           </div>
 
           {/* Form card */}

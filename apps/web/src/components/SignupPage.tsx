@@ -18,7 +18,7 @@ const LANDMARKS = [
 
 const FEATURES = [
   { icon: "🗺️", text: "AI-powered itinerary builder" },
-  { icon: "📍", text: "Real-time Google Maps data" },
+  { icon: "📍", text: "Real-time places & routes" },
   { icon: "🌤️", text: "Live weather & air quality" },
   { icon: "✈️", text: "Instant route calculations" },
 ]
@@ -90,14 +90,14 @@ export function SignupPage({ onSuccess, onSwitchToLogin }: SignupPageProps) {
             <div className="h-10 w-10 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center">
               <Plane className="h-5 w-5 text-white" />
             </div>
-            <span className="text-white font-bold text-xl tracking-tight">Voyager AI</span>
+            <span className="text-white font-bold text-xl tracking-tight">TripGenius</span>
           </div>
         </div>
 
         {/* Hero text */}
         <div className="relative z-10 animate-fade-up anim-delay-200">
           <p className="text-white/60 uppercase tracking-widest text-xs font-semibold mb-3">
-            Start your journey
+            Start planning
           </p>
           <h1 className="text-white font-bold text-5xl xl:text-6xl leading-[1.1] mb-6">
             Every trip starts<br />
@@ -143,7 +143,7 @@ export function SignupPage({ onSuccess, onSwitchToLogin }: SignupPageProps) {
           <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center">
             <Plane className="h-4 w-4 text-white" />
           </div>
-          <span className="font-bold text-lg tracking-tight">Voyager AI</span>
+          <span className="font-bold text-lg tracking-tight">TripGenius</span>
         </div>
 
         <div className="w-full max-w-[400px] animate-slide-right">
@@ -270,7 +270,7 @@ export function SignupPage({ onSuccess, onSwitchToLogin }: SignupPageProps) {
                 ) : (
                   <>
                     <Sparkles className="h-4 w-4" />
-                    Start your journey
+                    Create account
                   </>
                 )}
               </button>

@@ -374,7 +374,7 @@ export default function App() {
             <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
               <MapPin className="h-4 w-4 text-white" />
             </div>
-            <span className="font-bold text-sm tracking-tight">Voyager AI</span>
+            <span className="font-bold text-sm tracking-tight">TripGenius</span>
           </div>
           <button className="md:hidden h-8 w-8 rounded-lg hover:bg-muted flex items-center justify-center text-muted-foreground" onClick={() => setSidebarOpen(false)}>
             <X className="h-4 w-4" />
@@ -446,7 +446,7 @@ export default function App() {
             ) : (
               <>
                 <MapPin className="h-4 w-4 text-primary shrink-0" />
-                <h1 className="font-semibold text-sm">Voyager AI</h1>
+                <h1 className="font-semibold text-sm">TripGenius</h1>
               </>
             )}
           </div>
@@ -588,9 +588,9 @@ export default function App() {
             <div className="h-20 w-20 rounded-3xl bg-primary/10 flex items-center justify-center mb-6">
               <MapPin className="h-10 w-10 text-primary" />
             </div>
-            <h2 className="text-3xl font-bold tracking-tight mb-2">Voyager AI</h2>
+            <h2 className="text-3xl font-bold tracking-tight mb-2">TripGenius</h2>
             <p className="text-muted-foreground text-center max-w-sm mb-10">
-              Your intelligent travel companion. Plan trips, explore destinations, and get real-time insights powered by Google Maps.
+              Plan trips, explore destinations, and get real-time insights — all in one place.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-xl mb-8">
