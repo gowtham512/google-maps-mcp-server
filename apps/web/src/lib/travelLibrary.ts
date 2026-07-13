@@ -44,7 +44,7 @@ const PlaceCardComponent = defineComponent({
     phone: z.string().optional().describe("Phone number"),
     website: z.string().optional().describe("Website URL"),
   }),
-  component: (props) => React.createElement(PlaceCard, props),
+  component: ({ props }) => React.createElement(PlaceCard, props),
 })
 
 const RouteCardComponent = defineComponent({
@@ -70,7 +70,7 @@ const RouteCardComponent = defineComponent({
       .describe("Optional turn-by-turn directions"),
     polylineUrl: z.string().optional().describe("Static map image URL showing the route"),
   }),
-  component: (props) => React.createElement(RouteCard, props),
+  component: ({ props }) => React.createElement(RouteCard, props),
 })
 
 const ItineraryDayCardComponent = defineComponent({
@@ -95,7 +95,7 @@ const ItineraryDayCardComponent = defineComponent({
     })).describe("Ordered stops for the day"),
     notes: z.string().optional().describe("Tips or notes for the day"),
   }),
-  component: (props) => React.createElement(ItineraryDayCard, props),
+  component: ({ props }) => React.createElement(ItineraryDayCard, props),
 })
 
 const MapStaticCardComponent = defineComponent({
@@ -126,7 +126,7 @@ const MapStaticCardComponent = defineComponent({
       .optional()
       .describe("Map style (default roadmap)"),
   }),
-  component: (props) => React.createElement(MapStaticCard, props),
+  component: ({ props }) => React.createElement(MapStaticCard, props),
 })
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { CheckCircle2, ChevronDown, ChevronUp, Circle, Loader2, Wrench } from "lucide-react"
+import { CheckCircle2, ChevronDown, ChevronUp, Circle, Loader2 } from "lucide-react"
 import type { ToolCall } from "@/lib/api"
 
 interface ToolCallPanelProps {

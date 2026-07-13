@@ -1,4 +1,3 @@
-import * as React from "react"
 import { MapPin, Star, Clock, ExternalLink, DollarSign } from "lucide-react"
 
 interface PlaceCardProps {
