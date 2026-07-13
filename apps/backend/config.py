@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     )
 
     ollama_api_key: str = ""
-    ollama_model: str = "gemini-3-flash-preview"
+    ollama_model: str = "nemotron-3-super"
     ollama_base_url: str = "https://ollama.com"
 
     maps_api_key: str = ""
