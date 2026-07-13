@@ -200,6 +200,15 @@ export default function App() {
               updateLastAssistant(prev, (msg) => ({
                 ...msg,
                 content: (msg.content || "") + event.delta,
+                thinking: false,
+              })),
+            )
+          } else if (event.type === "thinking") {
+            // Model is in thinking phase — show indicator but don't append to content
+            setMessages((prev) =>
+              updateLastAssistant(prev, (msg) => ({
+                ...msg,
+                thinking: true,
               })),
             )
           } else if (event.type === "tool_call" && event.name) {
@@ -393,7 +402,9 @@ export default function App() {
                             <span className="text-sm">
                               {msg.tools?.some((t) => t.status === "running")
                                 ? `Using ${msg.tools.find((t) => t.status === "running")?.name ?? "tools"}...`
-                                : "Thinking..."}
+                                : msg.thinking
+                                ? "Thinking..."
+                                : "Generating..."}
                             </span>
                           </div>
                         )}

@@ -18,6 +18,7 @@ export interface Message {
   artifact_type?: string | null
   artifact_data?: string | null
   tools?: ToolCall[]
+  thinking?: boolean
   created_at: string
 }
 
@@ -80,7 +81,7 @@ export interface ToolCall {
 }
 
 export interface StreamEvent {
-  type: "content" | "tool_call" | "tool_result" | "done"
+  type: "content" | "thinking" | "tool_call" | "tool_result" | "done"
   id?: string
   delta?: string
   name?: string

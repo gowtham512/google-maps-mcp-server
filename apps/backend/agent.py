@@ -323,6 +323,7 @@ async def run_agent_loop_stream(
         thread.start()
 
         accumulated_content = ""
+        accumulated_thinking = ""
         accumulated_tool_calls: list[Any] = []
 
         while True:
@@ -333,6 +334,14 @@ async def run_agent_loop_stream(
                 raise item
             chunk = item
             chunk_message = getattr(chunk, "message", None)
+
+            # Handle thinking chunks — emit as a separate event type so the
+            # frontend can show a "thinking..." indicator while content is empty.
+            thinking_delta = getattr(chunk_message, "thinking", None) or ""
+            if thinking_delta:
+                accumulated_thinking += thinking_delta
+                yield {"type": "thinking", "delta": thinking_delta}
+
             delta = getattr(chunk_message, "content", None) or ""
             if delta:
                 accumulated_content += delta
@@ -345,6 +354,7 @@ async def run_agent_loop_stream(
         assistant_message = {
             "role": "assistant",
             "content": accumulated_content,
+            "thinking": accumulated_thinking or None,
             "tool_calls": [_tool_call_to_dict(c) for c in accumulated_tool_calls] if accumulated_tool_calls else None,
         }
         context.append(assistant_message)
