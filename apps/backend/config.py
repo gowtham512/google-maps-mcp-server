@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     ollama_api_key: str = ""
     ollama_model: str = "qwen3"
-    ollama_base_url: str = "https://api.ollama.com"
+    ollama_base_url: str = "https://ollama.com"
 
     maps_api_key: str = ""
     maps_api_base_url_places: str = "https://places.googleapis.com/v1"

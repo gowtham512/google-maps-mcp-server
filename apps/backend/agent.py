@@ -1,4 +1,7 @@
 import json
+import asyncio
+import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -10,10 +13,12 @@ from maps_tools import compute_route, find_nearby_places, geocode_address, searc
 
 AVAILABLE_TOOLS = [search_places, geocode_address, compute_route, find_nearby_places]
 
-# Ollama async client configured with the host from settings.
-# AsyncClient is required so that streaming chat does not block the event loop
-# and SSE chunks are flushed to the client as they arrive.
-_ollama_client = ollama.AsyncClient(host=settings.ollama_base_url)
+# Ollama sync client — Ollama Cloud only supports the sync Client.
+# Streaming is bridged to async via a thread + asyncio.Queue in run_agent_loop_stream.
+_ollama_client = ollama.Client(
+    host=settings.ollama_base_url,
+    headers={"Authorization": f"Bearer {settings.ollama_api_key}"},
+)
 
 OPENUI_SYSTEM_PROMPT = (
     Path(__file__).with_name("openui_system_prompt.txt").read_text(encoding="utf-8")
@@ -290,18 +295,41 @@ async def run_agent_loop_stream(
     executed_tool_count = 0
 
     for iteration in range(max_iterations):
-        stream = await _ollama_client.chat(
-            model=settings.ollama_model,
-            messages=context,
-            tools=AVAILABLE_TOOLS,
-            options={"temperature": 0.2},
-            stream=True,
-        )
+        # Run the blocking Ollama sync stream in a background thread so the
+        # event loop is free to flush SSE chunks to the client as they arrive.
+        _SENTINEL = object()
+        chunk_queue: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_event_loop()
+
+        def _stream_thread():
+            try:
+                stream = _ollama_client.chat(
+                    model=settings.ollama_model,
+                    messages=context,
+                    tools=AVAILABLE_TOOLS,
+                    options={"temperature": 0.2},
+                    stream=True,
+                )
+                for chunk in stream:
+                    loop.call_soon_threadsafe(chunk_queue.put_nowait, chunk)
+            except Exception as exc:
+                loop.call_soon_threadsafe(chunk_queue.put_nowait, exc)
+            finally:
+                loop.call_soon_threadsafe(chunk_queue.put_nowait, _SENTINEL)
+
+        thread = threading.Thread(target=_stream_thread, daemon=True)
+        thread.start()
 
         accumulated_content = ""
         accumulated_tool_calls: list[Any] = []
 
-        async for chunk in stream:
+        while True:
+            item = await chunk_queue.get()
+            if item is _SENTINEL:
+                break
+            if isinstance(item, Exception):
+                raise item
+            chunk = item
             chunk_message = getattr(chunk, "message", None)
             delta = getattr(chunk_message, "content", None) or ""
             if delta:
