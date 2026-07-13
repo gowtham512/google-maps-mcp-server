@@ -157,48 +157,92 @@ export default function App() {
 
   function hydrateTools(loaded: Message[]): Message[] {
     const result: Message[] = []
-    const pendingTools = new Map<string, ToolCall>()
 
-    for (const msg of loaded) {
-      if (msg.role === "assistant" && msg.tool_calls?.length) {
-        const tools: ToolCall[] = []
-        for (const tc of msg.tool_calls) {
-          const fn  = tc?.function || {}
-          const id  = tc?.id || fn?.id || fn?.name || `tool_${tools.length}`
-          const rawArgs = fn?.arguments
-          const inputStr = rawArgs
-            ? typeof rawArgs === "string" ? rawArgs : JSON.stringify(rawArgs)
-            : undefined
-          tools.push({ id, name: fn.name || tc?.name || "tool", input: inputStr, status: "running" })
-          pendingTools.set(id, tools[tools.length - 1])
-        }
-        result.push({ ...msg, tools })
+    // Filter out system messages — they should never render
+    const messages = loaded.filter((m) => m.role !== "system")
+
+    let i = 0
+    while (i < messages.length) {
+      const msg = messages[i]
+
+      // User messages pass straight through
+      if (msg.role === "user") {
+        result.push(msg)
+        i++
         continue
       }
 
-      if (msg.role === "tool" && msg.tool_call_id) {
-        const tool = pendingTools.get(msg.tool_call_id)
-        if (tool) {
-          tool.status = "done"
-          tool.result = msg.content || undefined
-          if (!tool.input && (msg as any).tool_input) tool.input = (msg as any).tool_input
-        } else {
-          result.push({
-            ...msg,
-            tools: [{
-              id: msg.tool_call_id,
-              name: msg.tool_name || "tool",
-              input: (msg as any).tool_input || undefined,
-              status: "done",
-              result: msg.content || undefined,
-            }],
-          })
-          continue
-        }
+      // Tool messages without a preceding assistant — skip (orphaned)
+      if (msg.role === "tool") {
+        i++
+        continue
       }
 
-      result.push(msg)
+      // Assistant message — collect ALL consecutive assistant+tool rounds
+      // that belong to this single "turn" (until the next user message)
+      if (msg.role === "assistant") {
+        // The merged message will be built on the first assistant message
+        const merged: Message = { ...msg, tools: [] }
+        const allTools: ToolCall[] = []
+        const pendingTools = new Map<string, ToolCall>()
+
+        // Walk forward consuming assistant+tool rounds until next user msg
+        let j = i
+        while (j < messages.length && messages[j].role !== "user") {
+          const cur = messages[j]
+
+          if (cur.role === "assistant") {
+            // If this is a later assistant message in the same turn (re-entry
+            // after tools), absorb its content into the merged message
+            if (j > i && cur.content) {
+              merged.content = cur.content
+            }
+            // Absorb openui_code / artifacts from the final assistant message
+            if (cur.openui_code)   merged.openui_code   = cur.openui_code
+            if (cur.artifact_type) merged.artifact_type = cur.artifact_type
+            if (cur.artifact_data) merged.artifact_data = cur.artifact_data
+
+            // Hydrate tool_calls on this assistant msg
+            if (cur.tool_calls?.length) {
+              for (const tc of cur.tool_calls) {
+                const fn  = tc?.function || {}
+                const id  = tc?.id || fn?.id || fn?.name || `tool_${allTools.length}`
+                const rawArgs = fn?.arguments
+                const inputStr = rawArgs
+                  ? typeof rawArgs === "string" ? rawArgs : JSON.stringify(rawArgs)
+                  : undefined
+                const tool: ToolCall = {
+                  id,
+                  name: fn.name || tc?.name || "tool",
+                  input: inputStr,
+                  status: "running",
+                }
+                allTools.push(tool)
+                pendingTools.set(id, tool)
+              }
+            }
+          } else if (cur.role === "tool" && cur.tool_call_id) {
+            const tool = pendingTools.get(cur.tool_call_id)
+            if (tool) {
+              tool.status = "done"
+              tool.result = cur.content || undefined
+              if (!tool.input && (cur as any).tool_input) tool.input = (cur as any).tool_input
+            }
+          }
+
+          j++
+        }
+
+        merged.tools = allTools
+        result.push(merged)
+        i = j  // skip all consumed messages
+        continue
+      }
+
+      // Anything else — skip
+      i++
     }
+
     return result
   }
 
@@ -471,8 +515,8 @@ export default function App() {
                   const isLastAssistant = msg.role === "assistant" && idx === messages.length - 1
                   const isStreaming     = loading && isLastAssistant
 
-                  // Skip bare tool messages — they are merged into the assistant bubble via hydrateTools
-                  if (msg.role === "tool") return null
+                  // Skip bare tool/system messages — merged into assistant bubble
+                  if (msg.role === "tool" || msg.role === "system") return null
 
                   return (
                     <div key={idx} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>

@@ -163,7 +163,7 @@ async def _persist_turn(thread_id: str, user_message: str, history: list[dict[st
         )
 
         for msg in messages[len(history) :]:
-            if msg.get("role") == "user":
+            if msg.get("role") in ("user", "system"):
                 continue
             db_msg = Message(
                 thread_id=thread_id,
