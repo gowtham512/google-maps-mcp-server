@@ -140,7 +140,8 @@ export async function sendMessageStream(
         if (eventType || eventData) flushEvent()
         eventType = line.slice(6).trim()
       } else if (line.startsWith("data:")) {
-        eventData = line.slice(5).trim()
+        // Accumulate multi-line data fields per SSE spec
+        eventData = eventData ? eventData + "\n" + line.slice(5).trim() : line.slice(5).trim()
       } else if (line === "") {
         flushEvent()
       }

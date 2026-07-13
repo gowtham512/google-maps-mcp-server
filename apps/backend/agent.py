@@ -10,8 +10,10 @@ from maps_tools import compute_route, find_nearby_places, geocode_address, searc
 
 AVAILABLE_TOOLS = [search_places, geocode_address, compute_route, find_nearby_places]
 
-# Ollama client configured with the host from settings.
-_ollama_client = ollama.Client(host=settings.ollama_base_url)
+# Ollama async client configured with the host from settings.
+# AsyncClient is required so that streaming chat does not block the event loop
+# and SSE chunks are flushed to the client as they arrive.
+_ollama_client = ollama.AsyncClient(host=settings.ollama_base_url)
 
 OPENUI_SYSTEM_PROMPT = (
     Path(__file__).with_name("openui_system_prompt.txt").read_text(encoding="utf-8")
@@ -288,7 +290,7 @@ async def run_agent_loop_stream(
     executed_tool_count = 0
 
     for iteration in range(max_iterations):
-        stream = _ollama_client.chat(
+        stream = await _ollama_client.chat(
             model=settings.ollama_model,
             messages=context,
             tools=AVAILABLE_TOOLS,
@@ -299,7 +301,7 @@ async def run_agent_loop_stream(
         accumulated_content = ""
         accumulated_tool_calls: list[Any] = []
 
-        for chunk in stream:
+        async for chunk in stream:
             chunk_message = getattr(chunk, "message", None)
             delta = getattr(chunk_message, "content", None) or ""
             if delta:
@@ -379,8 +381,10 @@ async def run_agent_loop_stream(
         context.append({"role": "assistant", "content": fallback})
         yield {"type": "content", "delta": fallback}
 
-    # Collect only the new assistant/tool/turn messages to add to full history
-    new_messages = context[len(recent_history) + 1 :]  # skip system + recent_history + current user
+    # Collect only the new assistant/tool/turn messages to add to full history.
+    # context layout: [system(0)] + recent_history[1..N] + [user(N+1)] + [new assistant/tool msgs...]
+    new_messages_start = 1 + len(recent_history) + 1  # skip system + recent history + current user
+    new_messages = context[new_messages_start:]
 
     full_history.extend(new_messages)
 
