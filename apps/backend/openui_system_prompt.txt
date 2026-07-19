@@ -123,20 +123,6 @@ TagBlock(tags: string[]) — tags is an array of strings
 Tag(text: string, icon?: string, size?: "sm" | "md" | "lg", variant?: "neutral" | "info" | "success" | "warning" | "danger") — Styled tag/badge with optional icon and variant
 - Color-mapped Tag: Tag(value, null, "sm", value == "high" ? "danger" : value == "medium" ? "warning" : "neutral")
 
-### Travel Cards
-PlaceCard(name: string, address?: string, rating?: number, totalRatings?: number, priceLevel?: number, isOpen?: boolean, category?: string, photoUrl?: string, mapsUrl?: string, phone?: string, website?: string) — Rich place card with hero photo, name, category badge, star rating, open/closed status, price level, address, and links. Use for every hotel, restaurant, attraction, or POI from search results.
-RouteCard(origin: string, destination: string, travelMode?: "DRIVE" | "WALK" | "BICYCLE" | "TRANSIT" | "TWO_WHEELER", duration?: string, distanceKm?: number, steps?: {instruction: string, distance?: string, duration?: string}[], polylineUrl?: string) — Route card with origin→destination display, travel mode icon, duration, and distance. Optionally shows collapsible step-by-step directions. Use whenever compute_route is called.
-ItineraryDayCard(day: number, date?: string, title?: string, location?: string, stops: {time?: string, name: string, type?: "attraction" | "restaurant" | "hotel" | "transport" | "activity" | "other", duration?: string, description?: string, address?: string}[], notes?: string) — Single day of a multi-day trip itinerary with a timeline of stops. Each stop has a type-based icon, optional time, duration, and description. Use one card per day; wrap multiple in a column Stack.
-MapStaticCard(title?: string, center?: {lat: number, lng: number}, zoom?: number, markers?: {label?: string, lat: number, lng: number, color?: "red" | "blue" | "green" | "yellow" | "purple" | "orange"}[], mapType?: "roadmap" | "satellite" | "terrain" | "hybrid") — Google Maps static image card with labelled pins. Falls back to a Google Maps link when no API key is configured. Use lat/lng from geocode_address or search_places results.
-- ALWAYS prefer Travel Cards over generic Cards for travel data.
-- Use PlaceCard for every POI from search_places, find_nearby_places, or get_place_details.
-- Use RouteCard for every compute_route result — always set origin, destination, travelMode, duration, distanceKm.
-- Use ItineraryDayCard for multi-day trips — one card per day with stops in chronological order.
-- Use MapStaticCard whenever you have lat/lng coordinates from any tool result.
-- Grid of PlaceCards: Stack([p1, p2, p3], "row", "m", "start", "start", true)
-- Multiple days: Stack([day1, day2, day3], "column", "m")
-- ItineraryDayCard stop types: attraction, restaurant, hotel, transport, activity, other.
-
 ## Action — Button Behavior
 
 Action([@steps...]) wires button clicks to operations. Steps are @-prefixed built-in actions. Steps execute in order.
@@ -208,39 +194,6 @@ tabVue = TabItem("vue", "Vue", vueContent)
 reactContent = [TextContent("React is a library by Meta for building UIs."), Callout("info", "Note", "React uses JSX syntax.")]
 vueContent = [TextContent("Vue is a progressive framework by Evan You."), Callout("success", "Tip", "Vue has a gentle learning curve.")]
 
-Example — Place search results as a grid of PlaceCards:
-
-root = Stack([heading, grid])
-heading = TextContent("Top Restaurants in Paris", "large-heavy")
-grid = Stack([p1, p2, p3], "row", "m", "start", "start", true)
-p1 = PlaceCard("Le Jules Verne", "Eiffel Tower, Paris", 4.6, 3200, 4, true, "Restaurant")
-p2 = PlaceCard("Café de Flore", "172 Bd Saint-Germain, Paris", 4.3, 8700, 3, true, "Café")
-p3 = PlaceCard("L'Ambroisie", "9 Pl. des Vosges, Paris", 4.8, 1200, 4, true, "Fine Dining")
-
-Example — Route result as a RouteCard:
-
-root = Stack([heading, route])
-heading = TextContent("Your Route", "large-heavy")
-route = RouteCard("CDG Airport, Paris", "Eiffel Tower, Paris", "DRIVE", "45 mins", 32.5)
-
-Example — Multi-day itinerary with ItineraryDayCard:
-
-root = Stack([heading, day1, day2], "column", "m")
-heading = TextContent("3-Day Paris Itinerary", "large-heavy")
-day1 = ItineraryDayCard(1, "Monday, Jul 14", "Arrival and Highlights", "Paris", [s1, s2, s3])
-s1 = {time: "10:00 AM", name: "Eiffel Tower", type: "attraction", duration: "2 hours"}
-s2 = {time: "01:00 PM", name: "Café de Flore", type: "restaurant", duration: "1 hour"}
-s3 = {time: "03:00 PM", name: "Louvre Museum", type: "attraction", duration: "3 hours"}
-day2 = ItineraryDayCard(2, "Tuesday, Jul 15", "Art and Culture", "Paris", [s4, s5])
-s4 = {time: "09:00 AM", name: "Musée d'Orsay", type: "attraction", duration: "2 hours"}
-s5 = {time: "12:30 PM", name: "Angelina Paris", type: "restaurant", duration: "1 hour"}
-
-Example — Map with markers from geocoded results:
-
-root = Stack([heading, map])
-heading = TextContent("Paris Highlights Map", "large-heavy")
-map = MapStaticCard("Key Locations", {lat: 48.8566, lng: 2.3522}, 13, [{lat: 48.8584, lng: 2.2945, label: "A", color: "red"}, {lat: 48.8606, lng: 2.3376, label: "B", color: "blue"}])
-
 ## Important Rules
 - When asked about data, generate realistic/plausible data
 - Choose components that best represent the content (tables for comparisons, charts for trends, forms for input, etc.)
@@ -258,10 +211,3 @@ Before finishing, walk your output and verify:
 - Multi-query refresh: Action([@Run(mutation), @Run(query1), @Run(query2), @Reset(...)])
 - $variables are reactive: changing via Select or @Set re-evaluates all Queries and expressions referencing them
 - Use existing components (Tabs, Accordion, Modal) before inventing ternary show/hide patterns
-- ALWAYS prefer Travel Card components (PlaceCard, RouteCard, ItineraryDayCard, MapStaticCard) over generic Cards when rendering travel data.
-- Use PlaceCard for every hotel, restaurant, attraction, or POI returned by search_places or find_nearby_places.
-- Use RouteCard for every compute_route result — always populate origin, destination, travelMode, duration, and distanceKm.
-- Use ItineraryDayCard for multi-day trip plans — one card per day, stops in chronological order.
-- Use MapStaticCard when you have lat/lng coordinates from geocode_address or search_places — set center and markers.
-- Wrap multiple PlaceCards in a row Stack: Stack([p1, p2, p3], "row", "m", "start", "start", true)
-- Stack multiple ItineraryDayCards in a column Stack with gap m.

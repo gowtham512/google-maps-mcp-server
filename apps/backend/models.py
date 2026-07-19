@@ -41,15 +41,12 @@ class Thread(SQLModel, table=True):
 class Message(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     thread_id: str = Field(index=True, foreign_key="thread.id")
-    role: str  # system, user, assistant, tool
+    role: str  # user, assistant
     content: str | None = None
-    tool_name: str | None = None
+    # Enriched tool call data — only set on assistant messages that made tool calls.
+    # Schema: [{"id": str, "name": str, "input": str (JSON), "result": str, "status": "done"}]
     tool_calls: str | None = None  # JSON serialized
-    tool_call_id: str | None = None  # Matches assistant tool_calls with tool results
-    tool_input: str | None = None  # JSON-serialized arguments for a tool call row
-    openui_code: str | None = None  # OpenUI Lang code for assistant/tool messages
-    artifact_type: str | None = None  # "slides" or "report"
-    artifact_data: str | None = None  # Structured artifact JSON for export
+    openui_code: str | None = None  # OpenUI Lang code for the final assistant response
     created_at: datetime = Field(
         default_factory=utc_now,
         sa_column=Column(DateTime(timezone=True), nullable=False),
@@ -58,13 +55,11 @@ class Message(SQLModel, table=True):
     thread: Thread | None = Relationship(back_populates="messages")
 
     def to_dict(self) -> dict[str, Any]:
+        import json
         data: dict[str, Any] = {
             "role": self.role,
             "content": self.content or "",
         }
-        if self.tool_name:
-            data["tool_name"] = self.tool_name
         if self.tool_calls:
-            import json
             data["tool_calls"] = json.loads(self.tool_calls)
         return data

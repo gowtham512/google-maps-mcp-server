@@ -12,7 +12,5 @@ aiosqlite>=0.22.0  # used only for in-memory SQLite tests
 pytest>=8.3.0
 pytest-asyncio>=0.24.0
 pytest-mock>=3.14.0
-python-pptx>=1.0.0
-reportlab>=4.0.0
 bcrypt>=4.0.0
 python-jose[cryptography]>=3.3.0

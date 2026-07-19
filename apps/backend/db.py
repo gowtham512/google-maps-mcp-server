@@ -92,10 +92,6 @@ async def migrate_db():
 
         # --- message table ---
         message_cols = table_columns.get("message", set())
-        if "artifact_type" not in message_cols:
-            await conn.execute(text("ALTER TABLE message ADD COLUMN artifact_type VARCHAR"))
-        if "artifact_data" not in message_cols:
-            await conn.execute(text("ALTER TABLE message ADD COLUMN artifact_data TEXT"))
         if "tool_call_id" not in message_cols:
             await conn.execute(text("ALTER TABLE message ADD COLUMN tool_call_id VARCHAR"))
         if "tool_input" not in message_cols:

@@ -61,6 +61,13 @@ export default function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages, loading])
 
+  // Auto-dismiss error toast after 5s
+  useEffect(() => {
+    if (!error) return
+    const t = setTimeout(() => setError(null), 5000)
+    return () => clearTimeout(t)
+  }, [error])
+
   // Sync activeThreadId → URL
   useEffect(() => {
     const current = window.location.pathname
@@ -161,127 +168,67 @@ export default function App() {
     // Filter out system messages — they should never render
     const messages = loaded.filter((m) => m.role !== "system")
 
-    let i = 0
-    while (i < messages.length) {
-      const msg = messages[i]
-
-      // User messages pass straight through
+    for (const msg of messages) {
       if (msg.role === "user") {
         result.push(msg)
-        i++
         continue
       }
 
-      // Tool messages without a preceding assistant — skip (orphaned)
-      if (msg.role === "tool") {
-        i++
-        continue
-      }
-
-      // Assistant message — collect ALL consecutive assistant+tool rounds
-      // that belong to this single "turn" (until the next user message)
       if (msg.role === "assistant") {
-        // The merged message will be built on the first assistant message
-        const merged: Message = { ...msg, tools: [] }
-        const allTools: ToolCall[] = []
-        const pendingTools = new Map<string, ToolCall>()
-
-        // Walk forward consuming assistant+tool rounds until next user msg
-        let j = i
-        while (j < messages.length && messages[j].role !== "user") {
-          const cur = messages[j]
-
-          if (cur.role === "assistant") {
-            // If this is a later assistant message in the same turn (re-entry
-            // after tools), absorb its content into the merged message
-            if (j > i && cur.content) {
-              merged.content = cur.content
-            }
-            // Absorb openui_code / artifacts from the final assistant message
-            if (cur.openui_code)   merged.openui_code   = cur.openui_code
-            if (cur.artifact_type) merged.artifact_type = cur.artifact_type
-            if (cur.artifact_data) merged.artifact_data = cur.artifact_data
-
-            // Hydrate tool_calls on this assistant msg
-            if (cur.tool_calls?.length) {
-              for (const tc of cur.tool_calls) {
-                const fn  = tc?.function || {}
-                const id  = tc?.id || fn?.id || fn?.name || `tool_${allTools.length}`
-                const rawArgs = fn?.arguments
-                const inputStr = rawArgs
-                  ? typeof rawArgs === "string" ? rawArgs : JSON.stringify(rawArgs)
-                  : undefined
-                const tool: ToolCall = {
-                  id,
-                  name: fn.name || tc?.name || "tool",
-                  input: inputStr,
-                  status: "running",
-                }
-                allTools.push(tool)
-                pendingTools.set(id, tool)
-              }
-            }
-          } else if (cur.role === "tool" && cur.tool_call_id) {
-            const tool = pendingTools.get(cur.tool_call_id)
-            if (tool) {
-              tool.status = "done"
-              tool.result = cur.content || undefined
-              if (!tool.input && (cur as any).tool_input) tool.input = (cur as any).tool_input
-            }
-          }
-
-          j++
-        }
-
-        merged.tools = allTools
-        result.push(merged)
-        i = j  // skip all consumed messages
+        // tool_calls already contains enriched {id, name, input, result, status} objects
+        const tools: ToolCall[] = (msg.tool_calls || []).map((tc: any) => ({
+          id:     tc.id     || tc.name || `tool_${result.length}`,
+          name:   tc.name   || "tool",
+          input:  tc.input  ? (typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input)) : undefined,
+          result: tc.result ?? undefined,
+          status: (tc.status === "done" ? "done" : "running") as "done" | "running",
+        }))
+        result.push({ ...msg, tools })
         continue
       }
 
-      // Anything else — skip
-      i++
+      // Skip any legacy tool/system rows that may exist from old data
     }
 
     return result
   }
 
-  async function loadThread(threadId: string, preserveCurrentTools = false) {
+  async function loadThread(threadId: string) {
     try {
       setError(null)
-      const data     = await getThread(threadId)
-      const hydrated = hydrateTools(data.messages)
-
-      if (preserveCurrentTools) {
-        // During streaming: keep live tool status for tools still running,
-        // but use the DB status for tools that are already done in the DB.
-        setMessages((prev) => {
-          const liveMap = new Map<string, ToolCall>()
-          for (const m of prev)
-            for (const t of m.tools || [])
-              if (t.id) liveMap.set(t.id, t)
-          return hydrated.map((m) => {
-            if (m.role !== "assistant" || !m.tools?.length) return m
-            return {
-              ...m,
-              tools: m.tools.map((t) => {
-                const live = t.id ? liveMap.get(t.id) : undefined
-                // DB says done → use DB version (authoritative)
-                // DB says running but live has it as done → use live
-                // Otherwise use DB version
-                if (t.status === "done") return t
-                if (live?.status === "done") return { ...t, status: "done" as const, result: live.result }
-                return live ?? t
-              }),
-            }
-          })
-        })
-      } else {
-        setMessages(hydrated)
-      }
+      const data = await getThread(threadId)
+      setMessages(hydrateTools(data.messages))
     } catch (err) {
       setError("Failed to load thread")
       console.error(err)
+    }
+  }
+
+  /** Fetch the DB id of the latest assistant message and merge it into the
+   *  currently rendered assistant bubble — so downloads work without a full
+   *  reload that would remount the OpenUI renderer and cause a flicker. */
+  async function mergeLatestAssistantId(threadId: string) {
+    try {
+      const data = await getThread(threadId)
+      const hydrated = hydrateTools(data.messages)
+      const lastDbAssistant = [...hydrated].reverse().find((m) => m.role === "assistant")
+      if (!lastDbAssistant?.id) return
+      setMessages((prev) => {
+        const idx = prev.findLastIndex((m) => m.role === "assistant")
+        if (idx === -1) return prev
+        return prev.map((m, i) =>
+          i === idx
+            ? {
+                ...m,
+                id: lastDbAssistant.id,
+                // Prefer DB-authoritative field but keep the already-rendered UI
+                openui_code:   m.openui_code   ?? lastDbAssistant.openui_code,
+              }
+            : m,
+        )
+      })
+    } catch (err) {
+      console.error("Failed to merge assistant id:", err)
     }
   }
 
@@ -297,10 +244,13 @@ export default function App() {
     setLoading(true)
     setError(null)
 
-    // Auto-title the thread from the first user message
+    // Auto-title the thread from the first user message (optimistic + persisted)
     const currentThread = threads.find((t) => t.id === activeThreadId)
     const isFirstMessage = !currentThread || currentThread.title === "New Chat"
     if (isFirstMessage && activeThreadId) {
+      const optimisticTitle = userMessage.trim().slice(0, 40) || "New Chat"
+      // Update local state immediately so the sidebar doesn't flash "New Chat"
+      setThreads((prev) => prev.map((t) => (t.id === activeThreadId ? { ...t, title: optimisticTitle } : t)))
       autoTitleThread(activeThreadId, userMessage)
     }
 
@@ -321,11 +271,7 @@ export default function App() {
         (event: StreamEvent) => {
           if (event.type === "content" && event.delta != null) {
             setMessages((prev) =>
-              updateLastAssistant(prev, (m) => ({ ...m, content: (m.content || "") + event.delta, thinking: false })),
-            )
-          } else if (event.type === "thinking") {
-            setMessages((prev) =>
-              updateLastAssistant(prev, (m) => ({ ...m, thinking: true })),
+              updateLastAssistant(prev, (m) => ({ ...m, content: (m.content || "") + event.delta })),
             )
           } else if (event.type === "tool_call" && event.name) {
             const { name: toolName, id, input: toolInput } = event
@@ -355,8 +301,6 @@ export default function App() {
               updateLastAssistant(prev, (m) => ({
                 ...m,
                 openui_code:   event.openui_code   ?? null,
-                artifact_type: event.artifact_type ?? null,
-                artifact_data: event.artifact_data ?? null,
                 content: event.openui_code ? event.reply || m.content : m.content,
                 // Mark every tool as done — stream is complete
                 tools: (m.tools || []).map((t) => t.status === "running" ? { ...t, status: "done" as const } : t),
@@ -367,12 +311,23 @@ export default function App() {
         controller.signal,
       )
 
-      await loadThread(activeThreadId, true)
+      // Merge the DB id into the rendered bubble (enables downloads) without a
+      // full reload/remount, and refresh the sidebar thread list.
+      await mergeLatestAssistantId(activeThreadId)
       await loadThreads()
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         setError("Failed to send message")
         console.error(err)
+        // Remove the dangling empty assistant placeholder so the user isn't
+        // left staring at an empty bubble.
+        setMessages((prev) => {
+          const idx = prev.findLastIndex((m) => m.role === "assistant")
+          if (idx === -1) return prev
+          const last = prev[idx]
+          const isEmpty = !last.content && !last.openui_code && !(last.tools && last.tools.length)
+          return isEmpty ? prev.filter((_, i) => i !== idx) : prev
+        })
       }
     } finally {
       setLoading(false)
@@ -400,7 +355,6 @@ export default function App() {
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const activeThread     = threads.find((t) => t.id === activeThreadId)
-  const currentThreadId  = activeThreadId
 
   const SUGGESTIONS = [
     { icon: "🗼", text: "Plan a 3-day trip to Paris" },
@@ -509,7 +463,7 @@ export default function App() {
           <>
             {/* Messages */}
             <div className="flex-1 overflow-y-auto">
-              <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+              <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-5 sm:space-y-6">
                 {messages.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-16 text-center">
                     <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
@@ -527,42 +481,52 @@ export default function App() {
                   // Skip bare tool/system messages — merged into assistant bubble
                   if (msg.role === "tool" || msg.role === "system") return null
 
+                  // While streaming, the model emits raw openui-lang DSL as
+                  // plain text. Hide that from the user until the final
+                  // rendered component is ready.
+                  const raw = msg.content || ""
+                  const looksLikeCode =
+                    /(^|\n)\s*\w+\s*=\s*(Stack|Card|CardHeader|TextContent|Table|Tabs|Steps|List|MarkDownRenderer)\(/.test(raw)
+                  const hideStreamingCode = isStreaming && !msg.openui_code && looksLikeCode
+                  const anyToolRunning = msg.tools?.some((t) => t.status === "running")
+
                   return (
-                    <div key={idx} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div key={msg.id ?? idx} className={`flex gap-2 sm:gap-3 msg-enter ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
 
                       {/* Assistant avatar */}
                       {msg.role === "assistant" && (
-                        <div className="h-8 w-8 rounded-xl bg-primary flex items-center justify-center shrink-0 mt-1 shadow-md shadow-primary/20">
-                          <MapPin className="h-4 w-4 text-white" />
+                        <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-xl bg-primary flex items-center justify-center shrink-0 mt-1 shadow-md shadow-primary/20">
+                          <MapPin className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-white" />
                         </div>
                       )}
 
-                      <div className={`flex flex-col gap-2 min-w-0 ${msg.role === "user" ? "items-end max-w-[80%]" : "items-start max-w-[85%] w-full"}`}>
+                      <div className={`flex flex-col gap-2 min-w-0 ${msg.role === "user" ? "items-end max-w-[85%] sm:max-w-[80%]" : "items-start max-w-full sm:max-w-[85%] w-full"}`}>
 
                         {/* Tool call panel — ABOVE the content */}
                         {msg.role === "assistant" && msg.tools && msg.tools.length > 0 && (
                           <ToolCallPanel tools={msg.tools} isStreaming={isStreaming} />
                         )}
 
-                        {/* Message bubble — only if there's actual content */}
+                        {/* Message bubble — only if there's something to show */}
                         {(msg.content || msg.openui_code || isStreaming) && (
-                          <div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm w-full ${
+                          <div className={`rounded-2xl px-3.5 py-2.5 sm:px-4 sm:py-3 text-sm leading-relaxed shadow-sm w-full break-words ${
                             msg.role === "user"
                               ? "bg-primary text-primary-foreground rounded-br-sm"
                               : "bg-card border border-border/60 rounded-bl-sm"
                           }`}>
                             {msg.role === "assistant" && msg.openui_code ? (
-                              <OpenUIMessage
-                                threadId={currentThreadId!}
-                                messageId={msg.id}
-                                code={msg.openui_code}
-                                artifactType={msg.artifact_type}
-                                artifactData={msg.artifact_data}
-                              />
+                              <OpenUIMessage code={msg.openui_code} />
+                            ) : hideStreamingCode ? (
+                              // Building the response — DSL is streaming but not ready
+                              <span className="flex items-center gap-1.5 text-muted-foreground">
+                                <span className="typing-dot" />
+                                <span className="typing-dot" />
+                                <span className="typing-dot" />
+                              </span>
                             ) : (
-                              <div className="whitespace-pre-wrap">
-                                {msg.content || (
-                                  isStreaming && !msg.tools?.some(t => t.status === "running") ? (
+                              <div className="whitespace-pre-wrap break-words">
+                                {raw || (
+                                  isStreaming && !anyToolRunning ? (
                                     <span className="flex items-center gap-1.5 text-muted-foreground">
                                       <span className="typing-dot" />
                                       <span className="typing-dot" />
@@ -577,23 +541,20 @@ export default function App() {
                             {isStreaming && (
                               <div className="flex items-center gap-1.5 mt-2 text-muted-foreground text-xs">
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                {msg.tools?.some(t => t.status === "running")
-                                  ? `Using ${msg.tools.find(t => t.status === "running")?.name}…`
-                                  : msg.thinking ? "Thinking…" : "Generating…"}
+                                {anyToolRunning
+                                  ? `Using ${msg.tools!.find((t) => t.status === "running")?.name}…`
+                                  : hideStreamingCode
+                                    ? "Building your itinerary…"
+                                    : "Generating…"}
                               </div>
                             )}
                           </div>
-                        )}
-
-                        {/* Standalone tool_name fallback */}
-                        {msg.tool_name && !msg.tools?.length && (
-                          <p className="text-xs text-muted-foreground px-1">Tool: {msg.tool_name}</p>
                         )}
                       </div>
 
                       {/* User avatar */}
                       {msg.role === "user" && (
-                        <div className="h-8 w-8 rounded-xl bg-muted border border-border/60 flex items-center justify-center shrink-0 mt-1 text-xs font-bold text-muted-foreground">
+                        <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-xl bg-muted border border-border/60 flex items-center justify-center shrink-0 mt-1 text-xs font-bold text-muted-foreground">
                           U
                         </div>
                       )}
@@ -605,7 +566,7 @@ export default function App() {
             </div>
 
             {/* Composer */}
-            <div className="border-t border-border/60 bg-background px-4 py-3 shrink-0">
+            <div className="border-t border-border/60 bg-background px-3 sm:px-4 py-2.5 sm:py-3 shrink-0">
               <form onSubmit={handleSend} className="max-w-3xl mx-auto">
                 <div className="flex items-end gap-2 rounded-2xl border border-border/80 bg-card shadow-sm px-3 py-2 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/40 transition-all">
                   <textarea
@@ -673,8 +634,15 @@ export default function App() {
 
         {/* Error toast */}
         {error && (
-          <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-50 bg-destructive text-destructive-foreground px-5 py-3 rounded-2xl text-sm max-w-[90%] text-center shadow-xl">
-            ⚠ {error}
+          <div className="fixed sm:absolute bottom-24 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-destructive text-destructive-foreground px-4 py-3 rounded-2xl text-sm max-w-[92%] shadow-xl animate-fade-up">
+            <span className="flex-1">⚠ {error}</span>
+            <button
+              onClick={() => setError(null)}
+              className="h-6 w-6 rounded-lg hover:bg-white/20 flex items-center justify-center shrink-0 transition-colors"
+              aria-label="Dismiss"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         )}
       </main>

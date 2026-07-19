@@ -83,14 +83,9 @@ export interface Message {
   id?: number
   role: string
   content: string | null
-  tool_name?: string | null
-  tool_call_id?: string | null
-  tool_calls?: any[] | null
+  tool_calls?: any[] | null   // enriched: [{id, name, input, result, status}]
   openui_code?: string | null
-  artifact_type?: string | null
-  artifact_data?: string | null
   tools?: ToolCall[]
-  thinking?: boolean
   created_at: string
 }
 
@@ -103,8 +98,6 @@ export interface ChatResponse {
   thread_id: string
   reply: string
   openui_code?: string | null
-  artifact_type?: string | null
-  artifact_data?: string | null
   tool_calls_used: string[]
 }
 
@@ -171,7 +164,7 @@ export interface ToolCall {
 }
 
 export interface StreamEvent {
-  type: "content" | "thinking" | "tool_call" | "tool_result" | "done"
+  type: "content" | "tool_call" | "tool_result" | "done"
   id?: string
   delta?: string
   name?: string
@@ -179,8 +172,6 @@ export interface StreamEvent {
   result?: string
   reply?: string
   openui_code?: string | null
-  artifact_type?: string | null
-  artifact_data?: string | null
   tool_calls_used?: string[]
 }
 
@@ -255,63 +246,4 @@ export async function sendMessageStream(
     }
     reader.releaseLock()
   }
-}
-
-export type ArtifactFormat = "json" | "pptx" | "pdf" | "auto"
-
-export async function downloadArtifact(
-  threadId: string,
-  messageId: number,
-  format: ArtifactFormat = "auto",
-): Promise<void> {
-  const resp = await fetch(
-    `${API_BASE}/threads/${threadId}/messages/${messageId}/artifact?format=${format}`,
-    { headers: { ...authHeader() } },
-  )
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => "")
-    throw new Error(body || `Failed to download ${format}`)
-  }
-
-  const blob = await resp.blob()
-  const contentDisposition = resp.headers.get("content-disposition")
-  const filenameMatch = contentDisposition?.match(/filename="?([^";]+)"?/)
-  const filename = filenameMatch?.[1] || `artifact.${format === "auto" ? "download" : format}`
-
-  const url = window.URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  window.URL.revokeObjectURL(url)
-}
-
-export async function downloadLatestArtifact(
-  threadId: string,
-  format: ArtifactFormat = "auto",
-): Promise<void> {
-  const resp = await fetch(
-    `${API_BASE}/threads/${threadId}/artifact/latest?format=${format}`,
-    { headers: { ...authHeader() } },
-  )
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => "")
-    throw new Error(body || `Failed to download ${format}`)
-  }
-
-  const blob = await resp.blob()
-  const contentDisposition = resp.headers.get("content-disposition")
-  const filenameMatch = contentDisposition?.match(/filename="?([^";]+)"?/)
-  const filename = filenameMatch?.[1] || `artifact.${format === "auto" ? "download" : format}`
-
-  const url = window.URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  window.URL.revokeObjectURL(url)
 }

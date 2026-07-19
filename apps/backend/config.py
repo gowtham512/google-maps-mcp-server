@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     maps_api_base_url_elevation: str = "https://maps.googleapis.com/maps/api/elevation/json"
     maps_api_base_url_timezone: str = "https://maps.googleapis.com/maps/api/timezone/json"
 
+    # Tavily web search / extraction API
+    tavily_api_key: str = ""
+    tavily_api_base_url: str = "https://api.tavily.com"
+
     database_url: str = "postgresql+asyncpg://user:password@host.neon.tech/dbname?sslmode=require"
 
     # A long random secret used to sign JWTs.  Change this in production.

@@ -4,19 +4,17 @@ from unittest.mock import patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from main import _message_to_dict, app
+from main import app
 
 
 @pytest.fixture(autouse=True)
 def set_test_db():
-    # Default to in-memory SQLite for fast tests; respect DATABASE_URL if set.
+    # Always use in-memory SQLite for unit tests so they never touch a real DB.
     original = os.environ.get("DATABASE_URL")
-    if not original:
-        os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
     yield
     if original is None:
-        if "DATABASE_URL" in os.environ:
-            del os.environ["DATABASE_URL"]
+        os.environ.pop("DATABASE_URL", None)
     else:
         os.environ["DATABASE_URL"] = original
 
@@ -29,6 +27,11 @@ async def client():
     await init_db(drop_all=True)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
+        # Register a user and attach the bearer token to all requests so
+        # authenticated endpoints work in tests.
+        resp = await c.post("/auth/register", json={"email": "test@example.com", "password": "pw123456"})
+        token = resp.json()["access_token"]
+        c.headers.update({"Authorization": f"Bearer {token}"})
         yield c
     await close_db()
 
@@ -100,140 +103,3 @@ async def test_delete_thread(client):
 
     resp = await client.get(f"/threads/{thread_id}")
     assert resp.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_message_to_dict_includes_artifact_fields():
-    from models import Message
-    msg = Message(
-        id=1,
-        thread_id="t1",
-        role="assistant",
-        content="hello",
-        artifact_type="slides",
-        artifact_data='{"type": "slides"}',
-    )
-    data = _message_to_dict(msg)
-    assert data["id"] == 1
-    assert data["artifact_type"] == "slides"
-    assert data["artifact_data"] == '{"type": "slides"}'
-
-
-@pytest.mark.asyncio
-async def test_export_message_artifact(client):
-    resp = await client.post("/threads", json={"title": "Test"})
-    thread_id = resp.json()["id"]
-
-    with patch("main.run_agent_loop", return_value={
-        "reply": "deck",
-        "openui_code": "root = Stack([])",
-        "artifact_type": "slides",
-        "artifact_data": '{"type": "slides", "title": "Paris Deck", "slides": [{"title": "Intro", "bullets": ["Eiffel"]}]}',
-        "tool_calls_used": [],
-        "messages": [{"role": "assistant", "content": "deck", "artifact_type": "slides", "artifact_data": '{"type": "slides", "title": "Paris Deck", "slides": []}'}],
-    }):
-        await client.post(f"/threads/{thread_id}/chat", json={"message": "slides"})
-
-    # find the assistant message id
-    resp = await client.get(f"/threads/{thread_id}")
-    messages = resp.json()["messages"]
-    assistant_msg = next(m for m in messages if m["role"] == "assistant")
-
-    # auto format for slides should return pptx
-    resp = await client.get(f"/threads/{thread_id}/messages/{assistant_msg['id']}/artifact?format=auto")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"] == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-
-    # json
-    resp = await client.get(f"/threads/{thread_id}/messages/{assistant_msg['id']}/artifact?format=json")
-    assert resp.status_code == 200
-    assert resp.json()["type"] == "slides"
-
-    # explicit pdf for slides
-    resp = await client.get(f"/threads/{thread_id}/messages/{assistant_msg['id']}/artifact?format=pdf")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"] == "application/pdf"
-
-
-@pytest.mark.asyncio
-async def test_export_latest_artifact(client):
-    resp = await client.post("/threads", json={"title": "Test"})
-    thread_id = resp.json()["id"]
-
-    with patch("main.run_agent_loop", return_value={
-        "reply": "report",
-        "openui_code": "root = Stack([])",
-        "artifact_type": "report",
-        "artifact_data": '{"type": "report", "title": "Paris Report", "sections": [{"heading": "Summary", "body": "Nice"}]}',
-        "tool_calls_used": [],
-        "messages": [{"role": "assistant", "content": "report", "artifact_type": "report", "artifact_data": '{"type": "report", "title": "Paris Report", "sections": []}'}],
-    }):
-        await client.post(f"/threads/{thread_id}/chat", json={"message": "report"})
-
-    resp = await client.get(f"/threads/{thread_id}/artifact/latest?format=auto")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"] == "application/pdf"
-
-
-@pytest.mark.asyncio
-async def test_export_artifact_no_data_returns_404(client):
-    resp = await client.post("/threads", json={"title": "Test"})
-    thread_id = resp.json()["id"]
-
-    with patch("main.run_agent_loop", return_value={
-        "reply": "hi",
-        "tool_calls_used": [],
-        "messages": [{"role": "assistant", "content": "hi"}],
-    }):
-        await client.post(f"/threads/{thread_id}/chat", json={"message": "hi"})
-
-    resp = await client.get(f"/threads/{thread_id}/artifact/latest?format=auto")
-    assert resp.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_export_report_with_image(client):
-    """Report export should succeed even when image_url is provided."""
-    from unittest.mock import AsyncMock, patch
-
-    resp = await client.post("/threads", json={"title": "Test"})
-    thread_id = resp.json()["id"]
-
-    # Create a minimal valid 1x1 PNG (white).
-    png_bytes = bytes.fromhex(
-        "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8ffff3f0005fe02fedccc5e510000000049454e44ae426082"
-    )
-
-    with patch("artifacts._fetch_image", new=AsyncMock(return_value=png_bytes)):
-        with patch("main.run_agent_loop", return_value={
-            "reply": "report",
-            "openui_code": "root = Stack([])",
-            "artifact_type": "report",
-            "artifact_data": '{"type": "report", "title": "Paris Report", "sections": [{"heading": "Eiffel", "image_url": "https://example.com/eiffel.png", "body": "Iconic tower"}]}',
-            "tool_calls_used": [],
-            "messages": [{"role": "assistant", "content": "report", "artifact_type": "report", "artifact_data": '{"type": "report", "title": "Paris Report", "sections": []}'}],
-        }):
-            await client.post(f"/threads/{thread_id}/chat", json={"message": "report with image"})
-
-    resp = await client.get(f"/threads/{thread_id}/artifact/latest?format=pdf")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"] == "application/pdf"
-    assert len(resp.content) > 0
-
-
-@pytest.mark.asyncio
-async def test_export_artifact_bad_format_returns_400(client):
-    resp = await client.post("/threads", json={"title": "Test"})
-    thread_id = resp.json()["id"]
-
-    with patch("main.run_agent_loop", return_value={
-        "reply": "report",
-        "artifact_type": "report",
-        "artifact_data": '{"type": "report", "title": "Paris Report", "sections": []}',
-        "tool_calls_used": [],
-        "messages": [{"role": "assistant", "content": "report", "artifact_type": "report", "artifact_data": '{"type": "report", "title": "Paris Report", "sections": []}'}],
-    }):
-        await client.post(f"/threads/{thread_id}/chat", json={"message": "report"})
-
-    resp = await client.get(f"/threads/{thread_id}/artifact/latest?format=docx")
-    assert resp.status_code == 400

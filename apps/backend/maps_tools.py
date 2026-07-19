@@ -777,3 +777,412 @@ async def get_air_quality(location_address: str) -> str:
             lines.append(f"  Lung conditions: {lung}")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Shared geocoding helper for the new tools
+# ---------------------------------------------------------------------------
+
+async def _geocode_latlng(location_address: str, region_code: str = "US") -> tuple[float, float, str] | None:
+    """Geocode an address to (lat, lng, formatted_address), or None if not found."""
+    maps = MapsClient()
+    geo_params = {"address": location_address, "key": maps.api_key, "region": region_code}
+    geo_data = await maps._get(settings.maps_api_base_url_geocoding, geo_params)
+    results = geo_data.get("results", [])
+    if not results:
+        return None
+    loc = results[0]["geometry"]["location"]
+    formatted = results[0].get("formatted_address", location_address)
+    return loc["lat"], loc["lng"], formatted
+
+
+# ---------------------------------------------------------------------------
+# Distance Matrix (Routes API v2 — computeRouteMatrix)
+# ---------------------------------------------------------------------------
+
+async def get_distance_matrix(
+    origins: list[str] | str,
+    destinations: list[str] | str,
+    travel_mode: str = "DRIVE",
+) -> str:
+    """Compute travel time and distance between multiple origins and destinations.
+
+    Args:
+        origins: One or more origin addresses (list of strings, or a single string).
+        destinations: One or more destination addresses (list of strings, or a single string).
+        travel_mode: Exact Routes API enum: DRIVE, WALK, BICYCLE, TRANSIT, TWO_WHEELER.
+            Default "DRIVE".
+    """
+    if isinstance(origins, str):
+        origins = [origins]
+    if isinstance(destinations, str):
+        destinations = [destinations]
+    origins = [o for o in origins if o and o.strip()]
+    destinations = [d for d in destinations if d and d.strip()]
+    if not origins or not destinations:
+        return "At least one origin and one destination are required."
+
+    normalized_mode = _normalize_travel_mode(travel_mode)
+
+    url = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": MapsClient().api_key,
+        "X-Goog-FieldMask": "originIndex,destinationIndex,duration,distanceMeters,status,condition",
+        "X-Goog-Maps-Solution-ID": _GMP_ATTRIBUTION,
+    }
+    payload: dict[str, Any] = {
+        "origins": [{"waypoint": {"address": o}} for o in origins],
+        "destinations": [{"waypoint": {"address": d}} for d in destinations],
+        "travelMode": normalized_mode,
+    }
+    if normalized_mode == "TRANSIT":
+        payload["departureTime"] = _now_rfc3339()
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise httpx.HTTPStatusError(
+                f"{exc.response.status_code} {exc.response.reason_phrase}: {exc.response.text}",
+                request=exc.request,
+                response=exc.response,
+            ) from exc
+        data = resp.json()
+
+    # computeRouteMatrix returns a JSON array of elements.
+    elements = data if isinstance(data, list) else data.get("elements", [])
+    if not elements:
+        return "No route matrix results."
+
+    lines = [f"Distance matrix ({normalized_mode}):"]
+    for el in elements:
+        o_idx = el.get("originIndex", 0)
+        d_idx = el.get("destinationIndex", 0)
+        origin = origins[o_idx] if o_idx < len(origins) else f"origin {o_idx}"
+        dest = destinations[d_idx] if d_idx < len(destinations) else f"destination {d_idx}"
+        condition = el.get("condition", "")
+        if condition and condition != "ROUTE_EXISTS":
+            lines.append(f"{origin} → {dest}: no route ({condition})")
+            continue
+        duration = el.get("duration", "")
+        distance_m = el.get("distanceMeters", 0)
+        distance_km = distance_m / 1000 if distance_m else 0
+        lines.append(f"{origin} → {dest}: {distance_km:.1f} km, {duration}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Route with waypoints (Routes API v2 — intermediates)
+# ---------------------------------------------------------------------------
+
+async def compute_route_with_waypoints(
+    origin_address: str,
+    destination_address: str,
+    waypoints: list[str] | None = None,
+    travel_mode: str = "DRIVE",
+) -> str:
+    """Compute a multi-stop route through intermediate waypoints in order.
+
+    Args:
+        origin_address: Starting address (must be non-empty).
+        destination_address: Ending address (must be non-empty).
+        waypoints: Ordered list of intermediate stop addresses.
+        travel_mode: Exact Routes API enum: DRIVE, WALK, BICYCLE, TRANSIT, TWO_WHEELER.
+            Default "DRIVE".
+    """
+    if not origin_address or not origin_address.strip():
+        raise ValueError("origin_address is required.")
+    if not destination_address or not destination_address.strip():
+        raise ValueError("destination_address is required.")
+
+    normalized_mode = _normalize_travel_mode(travel_mode)
+    waypoints = [w for w in (waypoints or []) if w and w.strip()]
+
+    url = f"{settings.maps_api_base_url_routes}:computeRoutes"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": MapsClient().api_key,
+        "X-Goog-FieldMask": (
+            "routes.duration,routes.distanceMeters,"
+            "routes.legs.duration,routes.legs.distanceMeters"
+        ),
+        "X-Goog-Maps-Solution-ID": _GMP_ATTRIBUTION,
+    }
+    payload: dict[str, Any] = {
+        "origin": {"address": origin_address},
+        "destination": {"address": destination_address},
+        "travelMode": normalized_mode,
+        "computeAlternativeRoutes": False,
+        "languageCode": "en-US",
+        "units": "METRIC",
+    }
+    if waypoints:
+        payload["intermediates"] = [{"address": w} for w in waypoints]
+    if normalized_mode == "TRANSIT":
+        payload["departureTime"] = _now_rfc3339()
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise httpx.HTTPStatusError(
+                f"{exc.response.status_code} {exc.response.reason_phrase}: {exc.response.text}",
+                request=exc.request,
+                response=exc.response,
+            ) from exc
+        data = resp.json()
+
+    routes = data.get("routes", [])
+    if not routes:
+        return "No route found."
+
+    route = routes[0]
+    total_distance_km = route.get("distanceMeters", 0) / 1000
+    total_duration = route.get("duration", "")
+
+    stops = [origin_address, *waypoints, destination_address]
+    lines = [
+        f"Multi-stop route ({normalized_mode}):",
+        f"Stops: {' → '.join(stops)}",
+        f"Total distance: {total_distance_km:.1f} km",
+        f"Total duration: {total_duration}",
+    ]
+
+    legs = route.get("legs", [])
+    if legs and len(legs) == len(stops) - 1:
+        lines.append("Legs:")
+        for i, leg in enumerate(legs):
+            leg_km = leg.get("distanceMeters", 0) / 1000
+            leg_dur = leg.get("duration", "")
+            lines.append(f"  {stops[i]} → {stops[i + 1]}: {leg_km:.1f} km, {leg_dur}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Places Autocomplete (Places API — New)
+# ---------------------------------------------------------------------------
+
+async def autocomplete_place(input_text: str, region_code: str = "US") -> str:
+    """Get place name/address autocomplete suggestions for a partial query.
+
+    Args:
+        input_text: Partial text the user typed, e.g. "eiffel" or "restaurants near lou".
+        region_code: ISO 3166-1 alpha-2 country/region code to bias suggestions. Default "US".
+    """
+    if not input_text or not input_text.strip():
+        return "input_text is required."
+
+    url = f"{settings.maps_api_base_url_places}/places:autocomplete"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": MapsClient().api_key,
+        "X-Goog-Maps-Solution-ID": _GMP_ATTRIBUTION,
+    }
+    payload = {"input": input_text, "regionCode": region_code}
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise httpx.HTTPStatusError(
+                f"{exc.response.status_code} {exc.response.reason_phrase}: {exc.response.text}",
+                request=exc.request,
+                response=exc.response,
+            ) from exc
+        data = resp.json()
+
+    suggestions = data.get("suggestions", [])
+    if not suggestions:
+        return f"No suggestions for '{input_text}'."
+
+    lines = [f"Suggestions for '{input_text}':"]
+    for idx, s in enumerate(suggestions[:5], start=1):
+        pred = s.get("placePrediction", {})
+        text = pred.get("text", {}).get("text", "")
+        place_id = pred.get("placeId", "")
+        item = f"{idx}. {text}"
+        if place_id:
+            item += f"\n   Place ID: {place_id}"
+        lines.append(item)
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Static Map image (Maps Static API)
+# ---------------------------------------------------------------------------
+
+async def get_static_map_image(
+    center_address: str,
+    zoom: int = 13,
+    markers: list[str] | None = None,
+    size: str = "600x400",
+) -> str:
+    """Build a static map image URL centered on a location, with optional markers.
+
+    Returns a publicly usable image URL that can be shown as an image in the UI.
+
+    Args:
+        center_address: Address or place name to center the map on.
+        zoom: Map zoom level (1 world – 20 building). Default 13.
+        markers: Optional list of addresses/places to drop pins on.
+        size: Image size as "WIDTHxHEIGHT" in pixels. Default "600x400".
+    """
+    from urllib.parse import urlencode
+
+    if not center_address or not center_address.strip():
+        return "center_address is required."
+
+    api_key = MapsClient().api_key
+    params = [
+        ("center", center_address),
+        ("zoom", str(zoom)),
+        ("size", size),
+        ("scale", "2"),
+        ("maptype", "roadmap"),
+        ("key", api_key),
+    ]
+    for m in (markers or []):
+        if m and m.strip():
+            params.append(("markers", m))
+
+    url = "https://maps.googleapis.com/maps/api/staticmap?" + urlencode(params)
+    return (
+        f"Static map for {center_address} (zoom {zoom}):\n"
+        f"Image URL: {url}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Pollen API
+# ---------------------------------------------------------------------------
+
+async def get_pollen(location_address: str, days: int = 3) -> str:
+    """Get a pollen forecast (allergy index) for a location.
+
+    Args:
+        location_address: Address or city name to check pollen for.
+        days: Number of forecast days, 1–5. Default 3.
+    """
+    geo = await _geocode_latlng(location_address)
+    if geo is None:
+        return f"Could not locate: {location_address}"
+    lat, lng, formatted = geo
+
+    url = "https://pollen.googleapis.com/v1/forecast:lookup"
+    params = {
+        "key": MapsClient().api_key,
+        "location.latitude": lat,
+        "location.longitude": lng,
+        "days": max(1, min(days, 5)),
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(url, params=params)
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise httpx.HTTPStatusError(
+                f"{exc.response.status_code} {exc.response.reason_phrase}: {exc.response.text}",
+                request=exc.request,
+                response=exc.response,
+            ) from exc
+        data = resp.json()
+
+    daily = data.get("dailyInfo", [])
+    if not daily:
+        return f"No pollen data available for {formatted}."
+
+    lines = [f"Pollen forecast for {formatted}:"]
+    for day in daily:
+        date = day.get("date", {})
+        date_str = f"{date.get('year','')}-{date.get('month','')}-{date.get('day','')}"
+        lines.append(f"\n{date_str}:")
+        for p in day.get("pollenTypeInfo", []):
+            name = p.get("displayName", p.get("code", ""))
+            index = p.get("indexInfo", {})
+            category = index.get("category", "")
+            value = index.get("value")
+            if value is not None:
+                lines.append(f"  {name}: {value} ({category})")
+            elif not p.get("inSeason", True):
+                lines.append(f"  {name}: not in season")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Address Validation API
+# ---------------------------------------------------------------------------
+
+async def validate_address(address: str, region_code: str = "US") -> str:
+    """Validate and standardize a postal address.
+
+    Args:
+        address: The address to validate, e.g. "1600 amphitheatre pkwy mountain view".
+        region_code: ISO 3166-1 alpha-2 country/region code. Default "US".
+    """
+    if not address or not address.strip():
+        return "address is required."
+
+    url = "https://addressvalidation.googleapis.com/v1:validateAddress"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Maps-Solution-ID": _GMP_ATTRIBUTION,
+    }
+    payload = {
+        "address": {
+            "regionCode": region_code,
+            "addressLines": [address],
+        }
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            url,
+            headers=headers,
+            params={"key": MapsClient().api_key},
+            json=payload,
+        )
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise httpx.HTTPStatusError(
+                f"{exc.response.status_code} {exc.response.reason_phrase}: {exc.response.text}",
+                request=exc.request,
+                response=exc.response,
+            ) from exc
+        data = resp.json()
+
+    result = data.get("result", {})
+    verdict = result.get("verdict", {})
+    addr = result.get("address", {})
+    formatted = addr.get("formattedAddress", "")
+
+    complete = verdict.get("addressComplete", False)
+    has_unconfirmed = verdict.get("hasUnconfirmedComponents", False)
+    has_inferred = verdict.get("hasInferredComponents", False)
+
+    lines = [f"Address validation for '{address}':"]
+    if formatted:
+        lines.append(f"Standardized: {formatted}")
+    lines.append(f"Complete: {'Yes' if complete else 'No'}")
+    if has_unconfirmed:
+        lines.append("Warning: contains unconfirmed components.")
+    if has_inferred:
+        lines.append("Note: some components were inferred/added.")
+
+    # Surface any missing or unconfirmed component types.
+    unconfirmed = [
+        c.get("componentType", "")
+        for c in addr.get("addressComponents", [])
+        if c.get("confirmationLevel") not in (None, "CONFIRMED")
+    ]
+    if unconfirmed:
+        lines.append("Unconfirmed parts: " + ", ".join(t for t in unconfirmed if t))
+
+    return "\n".join(lines)

@@ -1,20 +1,18 @@
 import json
+import logging
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-import io
-
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from agent import run_agent_loop, run_agent_loop_stream
-from artifacts import ARTIFACT_FORMATS, build_json, build_pdf, build_pptx, load_artifact, resolve_format, sanitize_filename
 from auth import create_access_token, get_current_user_id, hash_password, verify_password
 from config import settings
 from db import close_db, get_session, init_db, migrate_db
@@ -22,20 +20,18 @@ from models import Message, Thread, User
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(..., min_length=1, max_length=8000)
 
 
 class ChatResponse(BaseModel):
     thread_id: str
     reply: str
     openui_code: str | None = None
-    artifact_type: str | None = None
-    artifact_data: str | None = None
     tool_calls_used: list[str]
 
 
 class CreateThreadRequest(BaseModel):
-    title: str = "New Chat"
+    title: str = Field(default="New Chat", min_length=1, max_length=200)
 
 
 class ThreadResponse(BaseModel):
@@ -49,11 +45,8 @@ class MessageOut(BaseModel):
     id: int
     role: str
     content: str | None = None
-    tool_name: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
     openui_code: str | None = None
-    artifact_type: str | None = None
-    artifact_data: str | None = None
     created_at: datetime
 
 
@@ -83,6 +76,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Travel Planner Chat Agent", lifespan=lifespan)
+
+logger = logging.getLogger("travel_agent")
 
 app.add_middleware(
     CORSMiddleware,
@@ -128,31 +123,22 @@ def _message_to_dict(msg: Message) -> dict[str, Any]:
         "content": msg.content or "",
         "created_at": msg.created_at.isoformat(),
     }
-    if msg.tool_name:
-        data["tool_name"] = msg.tool_name
-    if msg.tool_call_id:
-        data["tool_call_id"] = msg.tool_call_id
     if msg.tool_calls:
         data["tool_calls"] = json.loads(msg.tool_calls)
-    if msg.tool_input:
-        data["tool_input"] = msg.tool_input
     if msg.openui_code:
         data["openui_code"] = msg.openui_code
-    if msg.artifact_type:
-        data["artifact_type"] = msg.artifact_type
-    if msg.artifact_data:
-        data["artifact_data"] = msg.artifact_data
     return data
 
 
 async def _persist_turn(thread_id: str, user_message: str, history: list[dict[str, Any]], messages: list[dict[str, Any]]):
-    """Persist the user message and new assistant/tool messages for a turn."""
+    """Persist exactly two rows per turn: the user message and the final assistant message."""
     async with get_session() as session:
         thread_result = await session.exec(select(Thread).where(Thread.id == thread_id))
         thread = thread_result.scalar_one_or_none()
         if thread:
             thread.updated_at = datetime.now(timezone.utc)
 
+        # Row 1: user message
         session.add(
             Message(
                 thread_id=thread_id,
@@ -162,23 +148,24 @@ async def _persist_turn(thread_id: str, user_message: str, history: list[dict[st
             )
         )
 
-        for msg in messages[len(history) :]:
-            if msg.get("role") in ("user", "system"):
-                continue
-            db_msg = Message(
-                thread_id=thread_id,
-                role=msg.get("role", "assistant"),
-                content=msg.get("content"),
-                tool_name=msg.get("tool_name"),
-                tool_call_id=msg.get("tool_call_id"),
-                tool_calls=json.dumps(msg.get("tool_calls")) if msg.get("tool_calls") else None,
-                tool_input=msg.get("tool_input"),
-                openui_code=msg.get("openui_code") if msg.get("role") == "assistant" else None,
-                artifact_type=msg.get("artifact_type") if msg.get("role") == "assistant" else None,
-                artifact_data=msg.get("artifact_data") if msg.get("role") == "assistant" else None,
-                created_at=datetime.now(timezone.utc),
+        # Row 2: final assistant message (last assistant entry in the new messages)
+        new_messages = messages[len(history):]
+        final_assistant = next(
+            (m for m in reversed(new_messages) if m.get("role") == "assistant"),
+            None,
+        )
+        if final_assistant:
+            tool_calls = final_assistant.get("tool_calls")
+            session.add(
+                Message(
+                    thread_id=thread_id,
+                    role="assistant",
+                    content=final_assistant.get("content"),
+                    tool_calls=json.dumps(tool_calls) if tool_calls else None,
+                    openui_code=final_assistant.get("openui_code"),
+                    created_at=datetime.now(timezone.utc),
+                )
             )
-            session.add(db_msg)
 
 
 @app.get("/health")
@@ -313,115 +300,6 @@ async def update_thread(thread_id: str, req: UpdateThreadRequest, user_id: int =
         )
 
 
-async def _load_message_artifact(thread_id: str, message_id: str) -> tuple[dict[str, Any], str]:
-    """Load a message's artifact data and title, or raise 404 if unavailable."""
-    async with get_session() as session:
-        result = await session.exec(
-            select(Message)
-            .where(Message.thread_id == thread_id)
-            .where(Message.id == int(message_id))
-        )
-        msg = result.scalar_one_or_none()
-        if not msg:
-            raise HTTPException(status_code=404, detail="Message not found")
-        artifact = load_artifact(msg.artifact_data)
-        if not artifact:
-            raise HTTPException(status_code=404, detail="No artifact data for this message")
-        return artifact, sanitize_filename(artifact.get("title", "artifact"))
-
-
-@app.get("/threads/{thread_id}/messages/{message_id}/artifact")
-async def export_message_artifact(
-    thread_id: str,
-    message_id: str,
-    format: str = "auto",
-    user_id: int = Depends(get_current_user_id),
-):
-    """Download an artifact for a specific assistant message."""
-    if format not in {*ARTIFACT_FORMATS, "auto"}:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported format. Choose one of: {', '.join(sorted({*ARTIFACT_FORMATS, 'auto'}))}",
-        )
-
-    artifact, slug = await _load_message_artifact(thread_id, message_id)
-    resolved_format = resolve_format(artifact.get("type"), format)
-
-    if resolved_format == "json":
-        data = build_json(artifact)
-        media_type = "application/json"
-        ext = "json"
-    elif resolved_format == "pptx":
-        data = await build_pptx(artifact)
-        media_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        ext = "pptx"
-    else:  # pdf
-        data = await build_pdf(artifact)
-        media_type = "application/pdf"
-        ext = "pdf"
-
-    filename = f"{slug}.{ext}"
-    return Response(
-        content=data,
-        media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
-@app.get("/threads/{thread_id}/artifact/latest")
-async def export_latest_artifact(
-    thread_id: str,
-    format: str = "auto",
-    user_id: int = Depends(get_current_user_id),
-):
-    """Download an artifact from the most recent assistant message with artifact data."""
-    if format not in {*ARTIFACT_FORMATS, "auto"}:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported format. Choose one of: {', '.join(sorted({*ARTIFACT_FORMATS, 'auto'}))}",
-        )
-
-    async with get_session() as session:
-        result = await session.exec(
-            select(Message)
-            .where(Message.thread_id == thread_id)
-            .where(Message.role == "assistant")
-            .where(Message.artifact_data.isnot(None))  # type: ignore[attr-defined]
-            .order_by(Message.created_at.desc())
-        )
-        msg = result.scalar_one_or_none()
-        if not msg:
-            raise HTTPException(status_code=404, detail="No artifact found in this thread")
-        artifact = load_artifact(msg.artifact_data)
-        if not artifact:
-            raise HTTPException(status_code=404, detail="No artifact found in this thread")
-        # Read everything we need before the session closes — avoids a second nested session.
-        artifact_data_raw = msg.artifact_data
-        slug = sanitize_filename(artifact.get("title", "artifact"))
-
-    resolved_format = resolve_format(artifact.get("type"), format)
-
-    if resolved_format == "json":
-        data = build_json(artifact)
-        media_type = "application/json"
-        ext = "json"
-    elif resolved_format == "pptx":
-        data = await build_pptx(artifact)
-        media_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        ext = "pptx"
-    else:  # pdf
-        data = await build_pdf(artifact)
-        media_type = "application/pdf"
-        ext = "pdf"
-
-    filename = f"{slug}.{ext}"
-    return Response(
-        content=data,
-        media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
 @app.post("/threads/{thread_id}/chat", response_model=ChatResponse)
 async def chat(thread_id: str, req: ChatRequest, accept: str = Header(default=""), user_id: int = Depends(get_current_user_id)):
     async with get_session() as session:
@@ -441,13 +319,20 @@ async def chat(thread_id: str, req: ChatRequest, accept: str = Header(default=""
     if "text/event-stream" in accept:
         async def sse_stream():
             final_event: dict[str, Any] | None = None
-            async for event in run_agent_loop_stream(req.message, history):
-                if event["type"] == "done":
-                    final_event = event
-                yield f"event: {event['type']}\ndata: {json.dumps(_json_safe(event))}\n\n"
-
-            if final_event:
-                await _persist_turn(thread_id, req.message, history, final_event["messages"])
+            persisted = False
+            try:
+                async for event in run_agent_loop_stream(req.message, history):
+                    if event["type"] == "done":
+                        final_event = event
+                    yield f"event: {event['type']}\ndata: {json.dumps(_json_safe(event))}\n\n"
+            finally:
+                # Persist even if the client disconnects after the turn completed.
+                if final_event and not persisted:
+                    persisted = True
+                    try:
+                        await _persist_turn(thread_id, req.message, history, final_event["messages"])
+                    except Exception:
+                        logger.exception("Failed to persist turn for thread %s", thread_id)
 
         return StreamingResponse(
             sse_stream(),
@@ -461,14 +346,15 @@ async def chat(thread_id: str, req: ChatRequest, accept: str = Header(default=""
 
     # Non-streaming fallback
     result = await run_agent_loop(req.message, history)
-    await _persist_turn(thread_id, req.message, history, result["messages"])
+    try:
+        await _persist_turn(thread_id, req.message, history, result["messages"])
+    except Exception:
+        logger.exception("Failed to persist turn for thread %s", thread_id)
 
     return ChatResponse(
         thread_id=thread_id,
         reply=result["reply"],
         openui_code=result.get("openui_code"),
-        artifact_type=result.get("artifact_type"),
-        artifact_data=result.get("artifact_data"),
         tool_calls_used=result["tool_calls_used"],
     )
 

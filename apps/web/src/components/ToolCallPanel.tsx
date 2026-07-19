@@ -96,7 +96,7 @@ export function ToolCallPanel({ tools, isStreaming = false }: ToolCallPanelProps
     <div className="mt-3 rounded-xl border bg-background overflow-hidden">
       {/* Panel header — always visible */}
       <button
-        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/30 transition-colors text-left"
+        className="w-full flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 hover:bg-muted/30 transition-colors text-left"
         onClick={() => setPanelOpen((v) => !v)}
       >
         {/* Summary icon */}
@@ -107,15 +107,15 @@ export function ToolCallPanel({ tools, isStreaming = false }: ToolCallPanelProps
         )}
 
         {/* "Tools used" label */}
-        <span className="text-sm font-medium text-muted-foreground">Tools used</span>
+        <span className="text-sm font-medium text-muted-foreground shrink-0">Tools used</span>
 
         {/* Pill: N tools */}
-        <span className="text-sm font-medium px-2 py-0.5 rounded-full bg-muted text-foreground">
+        <span className="text-xs sm:text-sm font-medium px-2 py-0.5 rounded-full bg-muted text-foreground shrink-0">
           {total} {total === 1 ? "tool" : "tools"}
         </span>
 
         {/* Pill: N/N complete */}
-        <span className="text-sm font-medium px-2 py-0.5 rounded-full bg-muted text-foreground">
+        <span className="hidden xs:inline text-xs sm:text-sm font-medium px-2 py-0.5 rounded-full bg-muted text-foreground shrink-0">
           {done}/{total} complete
         </span>
 

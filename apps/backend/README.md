@@ -19,10 +19,12 @@ A Python-based travel planning AI agent powered by **Ollama Cloud** LLMs and **G
    OLLAMA_API_KEY=your_ollama_api_key
    OLLAMA_MODEL=qwen3
    MAPS_API_KEY=your_google_maps_api_key
+   TAVILY_API_KEY=your_tavily_api_key
    DATABASE_URL=postgresql+asyncpg://user:password@<endpoint-id>.us-east-1.aws.neon.tech/dbname?sslmode=require
    ```
 
    Copy the **unpooled** connection string from the Neon Console and remove any `channel_binding` parameter.
+   Get a free `TAVILY_API_KEY` at https://app.tavily.com (enables `web_search` / `extract_web_content`).
 
 2. Enable these APIs in the Google Cloud Console for your project:
    - Places API (New)
@@ -81,6 +83,8 @@ curl -X DELETE http://localhost:8000/threads/{thread_id}
 - `geocode_address` — convert address to lat/lng and place ID
 - `compute_route` — compute driving/walking route between addresses
 - `find_nearby_places` — find places of a type near an address
+- `web_search` — Tavily live web search for real-time info (events, visas, seasons, news)
+- `extract_web_content` — Tavily full-page content extraction for one or more URLs
 
 ## Notes
 
