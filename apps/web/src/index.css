@@ -274,3 +274,63 @@ body {
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover { background: hsl(220 20% 70%); }
+
+/* ─── Smooth interactions ─────────────────────────────────────────────────── */
+
+/* Consistent, buttery transitions on all interactive elements. Covers buttons
+   that individually forgot a transition class, so nothing snaps abruptly. */
+button,
+a,
+[role="button"],
+.cursor-pointer,
+input,
+textarea,
+select {
+  transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+  transition-duration: 200ms;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Tactile press feedback for anything clickable without its own active scale. */
+button:active,
+[role="button"]:active,
+.cursor-pointer:active {
+  transform: scale(0.97);
+}
+button:disabled,
+button:disabled:active {
+  transform: none;
+}
+
+/* Kill the grey tap flash on mobile so taps feel native. */
+button,
+a,
+[role="button"],
+.cursor-pointer {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Smooth programmatic scrolling (message list auto-scroll). */
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button,
+  a,
+  [role="button"],
+  .cursor-pointer,
+  input,
+  textarea,
+  select {
+    transition: none;
+  }
+  button:active,
+  [role="button"]:active,
+  .cursor-pointer:active {
+    transform: none;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}

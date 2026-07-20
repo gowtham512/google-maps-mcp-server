@@ -54,9 +54,15 @@ function ToolRow({ tool }: { tool: ToolCall }) {
         )}
       </button>
 
-      {/* Expanded detail — INPUT + RESULT */}
-      {expanded && hasDetails && (
-        <div className="px-4 pb-4 space-y-3">
+      {/* Expanded detail — INPUT + RESULT (smooth height animation) */}
+      {hasDetails && (
+        <div
+          className={`grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+            expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+          }`}
+        >
+          <div className="overflow-hidden">
+            <div className="px-4 pb-4 space-y-3">
           {tool.input && (
             <div>
               <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase mb-1.5">
@@ -77,6 +83,8 @@ function ToolRow({ tool }: { tool: ToolCall }) {
               </pre>
             </div>
           )}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -93,7 +101,7 @@ export function ToolCallPanel({ tools, isStreaming = false }: ToolCallPanelProps
   const allDone = done === total && !isStreaming
 
   return (
-    <div className="mt-3 rounded-xl border bg-background overflow-hidden">
+    <div className="mt-3 w-full rounded-xl border bg-background overflow-hidden">
       {/* Panel header — always visible */}
       <button
         className="w-full flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 hover:bg-muted/30 transition-colors text-left"
@@ -128,13 +136,18 @@ export function ToolCallPanel({ tools, isStreaming = false }: ToolCallPanelProps
       </button>
 
       {/* Expanded tool rows */}
-      {panelOpen && (
-        <div>
+      {/* Expanded tool rows — smooth height animation via grid-rows */}
+      <div
+        className={`grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+          panelOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+        }`}
+      >
+        <div className="overflow-hidden">
           {tools.map((tool, idx) => (
             <ToolRow key={tool.id ?? idx} tool={tool} />
           ))}
         </div>
-      )}
+      </div>
     </div>
   )
 }

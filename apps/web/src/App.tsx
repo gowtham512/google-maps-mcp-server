@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { Loader2, LogOut, MapPin, Menu, MessageSquarePlus, Send, Trash2, X } from "lucide-react"
+import { Loader2, LogOut, MapPin, Menu, MessageSquarePlus, PanelLeftClose, PanelLeftOpen, Send, Trash2, X } from "lucide-react"
 
 import { LoginPage } from "@/components/LoginPage"
 import { SignupPage } from "@/components/SignupPage"
@@ -39,6 +39,7 @@ export default function App() {
   const [loading, setLoading]           = useState(false)
   const [error, setError]               = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen]   = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortRef       = useRef<AbortController | null>(null)
   const textareaRef    = useRef<HTMLTextAreaElement>(null)
@@ -369,7 +370,10 @@ export default function App() {
       )}
 
       {/* ── Sidebar ── */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-72 flex flex-col sidebar-glass transition-transform duration-300 ease-in-out md:static md:w-64 md:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+      <aside className={`fixed inset-y-0 left-0 z-50 w-72 flex sidebar-glass overflow-hidden transition-all duration-300 ease-in-out md:static md:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} ${sidebarCollapsed ? "md:w-0 md:border-r-0" : "md:w-64"}`}>
+        {/* Fixed-width inner shell so content is clipped (not reflowed) while the
+            sidebar width animates open/closed. */}
+        <div className="flex h-full w-72 md:w-64 shrink-0 flex-col">
 
         {/* Header */}
         <div className="p-4 flex items-center justify-between border-b border-border/60 shrink-0">
@@ -430,6 +434,7 @@ export default function App() {
             Sign out
           </button>
         </div>
+        </div>
       </aside>
 
       {/* ── Main ── */}
@@ -439,6 +444,14 @@ export default function App() {
         <header className="flex items-center gap-3 px-4 py-3 border-b border-border/60 bg-background/95 shrink-0">
           <button className="md:hidden h-9 w-9 rounded-xl hover:bg-muted flex items-center justify-center text-muted-foreground" onClick={() => setSidebarOpen(true)}>
             <Menu className="h-5 w-5" />
+          </button>
+          <button
+            className="hidden md:flex h-9 w-9 rounded-xl hover:bg-muted items-center justify-center text-muted-foreground"
+            onClick={() => setSidebarCollapsed((v) => !v)}
+            title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+            aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
           </button>
           <div className="flex items-center gap-2 min-w-0 flex-1">
             {activeThread ? (
