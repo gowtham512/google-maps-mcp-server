@@ -84,7 +84,6 @@ export interface Message {
   role: string
   content: string | null
   tool_calls?: any[] | null   // enriched: [{id, name, input, result, status}]
-  openui_code?: string | null
   tools?: ToolCall[]
   created_at: string
 }
@@ -97,7 +96,6 @@ export interface ThreadDetail {
 export interface ChatResponse {
   thread_id: string
   reply: string
-  openui_code?: string | null
   tool_calls_used: string[]
 }
 
@@ -171,7 +169,6 @@ export interface StreamEvent {
   input?: string       // JSON-serialized tool arguments (on tool_call events)
   result?: string
   reply?: string
-  openui_code?: string | null
   tool_calls_used?: string[]
 }
 

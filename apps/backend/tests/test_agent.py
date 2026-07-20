@@ -4,7 +4,6 @@ import pytest
 
 from agent import (
     _execute_tool,
-    render_openui_fallback,
     run_agent_loop,
 )
 

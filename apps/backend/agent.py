@@ -195,7 +195,7 @@ def _history_for_ollama(msg: dict[str, Any]) -> dict[str, Any]:
     """Build a clean Ollama context message from a stored history message.
 
     Stored assistant messages carry an *enriched* tool_calls array
-    ([{id, name, input, result, status}]) plus openui_code. That format is
+    ([{id, name, input, result, status}]). That format is
     NOT valid for the Ollama API (which expects function-shaped tool_calls
     each followed by matching tool-role messages). Since we don't persist the
     intermediate tool rows, we drop tool_calls entirely and keep only the
@@ -205,61 +205,6 @@ def _history_for_ollama(msg: dict[str, Any]) -> dict[str, Any]:
         "role": msg.get("role", "assistant"),
         "content": msg.get("content", "") or "",
     }
-
-
-def _escape_openui(text: str) -> str:
-    """Escape characters that break OpenUI Lang rendering."""
-    return (
-        text.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
-
-
-def render_openui_fallback(reply: str, tool_calls_used: list[str]) -> str:
-    """Convert plain text into a minimal openui-lang program for safe rendering."""
-    # Split into paragraphs so long markdown-like text doesn't collapse into one block.
-    paragraphs = [p.strip() for p in reply.strip().split("\n\n") if p.strip()]
-    body_items: list[str] = []
-    for i, para in enumerate(paragraphs):
-        para_safe = _escape_openui(para)
-        body_items.append(f'p{i} = TextContent("{para_safe}", "default")')
-    body_refs = ", ".join(f"p{i}" for i in range(len(body_items)))
-
-    tool_lines = ""
-    tool_children = ""
-    if tool_calls_used:
-        tool_items = "\n".join(
-            f'  tool_{i} = TextContent("  • {name}", "small")'
-            for i, name in enumerate(tool_calls_used)
-        )
-        tool_refs = ", ".join(f"tool_{i}" for i in range(len(tool_calls_used)))
-        tool_lines = f"""\
-tools_header = TextContent("Tools used:", "small")
-{tool_items}
-tools_stack = Stack([tools_header, {tool_refs}], "column", "xs")
-"""
-        tool_children = ", tools_stack"
-
-    body_lines = "\n".join(f"  {item}" for item in body_items)
-    # Build bottom-up: leaf nodes first, root last — OpenUI Lang resolves references
-    # top-to-bottom so forward references (root referencing card before card is defined)
-    # cause broken renders.
-    code = f"""\
-{body_lines}
-{tool_lines}body = Stack([{body_refs}], "column", "s")
-card = Card([title, body{tool_children}])
-title = CardHeader("Travel Plan")
-root = Stack([card], "column", "m")""".strip()
-    return code
-
-
-def looks_like_openui(code: str) -> bool:
-    """Heuristic check for valid openui-lang shape."""
-    stripped = code.strip()
-    return bool(stripped) and stripped.startswith("root = Stack(")
 
 
 def _tool_call_to_dict(call: Any) -> dict[str, Any]:
@@ -311,7 +256,7 @@ async def run_agent_loop_stream(
         {"type": "content", "delta": str}
         {"type": "tool_call", "name": str, "id": str, "input": str}
         {"type": "tool_result", "name": str, "id": str, "result": str}
-        {"type": "done", "reply": str, "openui_code": str, "tool_calls_used": list[str], "messages": list[dict]}
+        {"type": "done", "reply": str, "tool_calls_used": list[str], "messages": list[dict]}
     """
     full_history: list[dict[str, Any]] = list(message_history) if message_history else []
 
@@ -462,15 +407,11 @@ async def run_agent_loop_stream(
     )
     reply = final_assistant_context.get("content", "") or ""
 
-    openui_code = (
-        reply if looks_like_openui(reply) else render_openui_fallback(reply, tool_calls_used)
-    )
-
-    # The single assistant message stored in history / DB
+    # The single assistant message stored in history / DB. `content` is the raw
+    # OpenUI Lang the model produced — rendered directly by the frontend Renderer.
     final_message: dict[str, Any] = {
         "role": "assistant",
         "content": reply,
-        "openui_code": openui_code,
         # Enriched tool_calls — all tools across all iterations with full data
         "tool_calls": all_enriched_tool_calls if all_enriched_tool_calls else None,
     }
@@ -482,7 +423,6 @@ async def run_agent_loop_stream(
     yield {
         "type": "done",
         "reply": reply,
-        "openui_code": openui_code,
         "tool_calls_used": list(dict.fromkeys(tool_calls_used)),
         "messages": full_history,
     }
@@ -495,14 +435,12 @@ async def run_agent_loop(user_message: str, message_history: list[dict[str, Any]
         if event["type"] == "done":
             result = {
                 "reply": event["reply"],
-                "openui_code": event["openui_code"],
                 "tool_calls_used": event["tool_calls_used"],
                 "messages": event["messages"],
             }
     if result is None:
         return {
             "reply": "",
-            "openui_code": None,
             "tool_calls_used": [],
             "messages": list(message_history) if message_history else [],
         }

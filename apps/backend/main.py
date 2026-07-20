@@ -26,7 +26,6 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     thread_id: str
     reply: str
-    openui_code: str | None = None
     tool_calls_used: list[str]
 
 
@@ -46,7 +45,6 @@ class MessageOut(BaseModel):
     role: str
     content: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
-    openui_code: str | None = None
     created_at: datetime
 
 
@@ -125,8 +123,6 @@ def _message_to_dict(msg: Message) -> dict[str, Any]:
     }
     if msg.tool_calls:
         data["tool_calls"] = json.loads(msg.tool_calls)
-    if msg.openui_code:
-        data["openui_code"] = msg.openui_code
     return data
 
 
@@ -162,7 +158,6 @@ async def _persist_turn(thread_id: str, user_message: str, history: list[dict[st
                     role="assistant",
                     content=final_assistant.get("content"),
                     tool_calls=json.dumps(tool_calls) if tool_calls else None,
-                    openui_code=final_assistant.get("openui_code"),
                     created_at=datetime.now(timezone.utc),
                 )
             )
@@ -354,7 +349,6 @@ async def chat(thread_id: str, req: ChatRequest, accept: str = Header(default=""
     return ChatResponse(
         thread_id=thread_id,
         reply=result["reply"],
-        openui_code=result.get("openui_code"),
         tool_calls_used=result["tool_calls_used"],
     )
 

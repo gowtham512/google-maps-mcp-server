@@ -46,7 +46,6 @@ class Message(SQLModel, table=True):
     # Enriched tool call data — only set on assistant messages that made tool calls.
     # Schema: [{"id": str, "name": str, "input": str (JSON), "result": str, "status": "done"}]
     tool_calls: str | None = None  # JSON serialized
-    openui_code: str | None = None  # OpenUI Lang code for the final assistant response
     created_at: datetime = Field(
         default_factory=utc_now,
         sa_column=Column(DateTime(timezone=True), nullable=False),

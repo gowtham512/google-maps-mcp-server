@@ -3,7 +3,7 @@ import { Loader2, LogOut, MapPin, Menu, MessageSquarePlus, Send, Trash2, X } fro
 
 import { LoginPage } from "@/components/LoginPage"
 import { SignupPage } from "@/components/SignupPage"
-import { OpenUIMessage } from "@/components/OpenUIMessage"
+import { AssistantMessage } from "@/components/AssistantMessage"
 import { ToolCallPanel } from "@/components/ToolCallPanel"
 import {
   createThread,
@@ -221,8 +221,6 @@ export default function App() {
             ? {
                 ...m,
                 id: lastDbAssistant.id,
-                // Prefer DB-authoritative field but keep the already-rendered UI
-                openui_code:   m.openui_code   ?? lastDbAssistant.openui_code,
               }
             : m,
         )
@@ -300,9 +298,7 @@ export default function App() {
             setMessages((prev) =>
               updateLastAssistant(prev, (m) => ({
                 ...m,
-                openui_code:   event.openui_code   ?? null,
-                content: event.openui_code ? event.reply || m.content : m.content,
-                // Mark every tool as done — stream is complete
+                // content already holds the streamed OpenUI Lang; just finalize tools.
                 tools: (m.tools || []).map((t) => t.status === "running" ? { ...t, status: "done" as const } : t),
               })),
             )
@@ -325,7 +321,7 @@ export default function App() {
           const idx = prev.findLastIndex((m) => m.role === "assistant")
           if (idx === -1) return prev
           const last = prev[idx]
-          const isEmpty = !last.content && !last.openui_code && !(last.tools && last.tools.length)
+          const isEmpty = !last.content && !(last.tools && last.tools.length)
           return isEmpty ? prev.filter((_, i) => i !== idx) : prev
         })
       }
@@ -481,15 +477,6 @@ export default function App() {
                   // Skip bare tool/system messages — merged into assistant bubble
                   if (msg.role === "tool" || msg.role === "system") return null
 
-                  // While streaming, the model emits raw openui-lang DSL as
-                  // plain text. Hide that from the user until the final
-                  // rendered component is ready.
-                  const raw = msg.content || ""
-                  const looksLikeCode =
-                    /(^|\n)\s*\w+\s*=\s*(Stack|Card|CardHeader|TextContent|Table|Tabs|Steps|List|MarkDownRenderer)\(/.test(raw)
-                  const hideStreamingCode = isStreaming && !msg.openui_code && looksLikeCode
-                  const anyToolRunning = msg.tools?.some((t) => t.status === "running")
-
                   return (
                     <div key={msg.id ?? idx} className={`flex gap-2 sm:gap-3 msg-enter ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
 
@@ -508,45 +495,16 @@ export default function App() {
                         )}
 
                         {/* Message bubble — only if there's something to show */}
-                        {(msg.content || msg.openui_code || isStreaming) && (
+                        {(msg.content || isStreaming) && (
                           <div className={`rounded-2xl px-3.5 py-2.5 sm:px-4 sm:py-3 text-sm leading-relaxed shadow-sm w-full break-words ${
                             msg.role === "user"
                               ? "bg-primary text-primary-foreground rounded-br-sm"
                               : "bg-card border border-border/60 rounded-bl-sm"
                           }`}>
-                            {msg.role === "assistant" && msg.openui_code ? (
-                              <OpenUIMessage code={msg.openui_code} />
-                            ) : hideStreamingCode ? (
-                              // Building the response — DSL is streaming but not ready
-                              <span className="flex items-center gap-1.5 text-muted-foreground">
-                                <span className="typing-dot" />
-                                <span className="typing-dot" />
-                                <span className="typing-dot" />
-                              </span>
+                            {msg.role === "assistant" ? (
+                              <AssistantMessage content={msg.content} isStreaming={isStreaming} />
                             ) : (
-                              <div className="whitespace-pre-wrap break-words">
-                                {raw || (
-                                  isStreaming && !anyToolRunning ? (
-                                    <span className="flex items-center gap-1.5 text-muted-foreground">
-                                      <span className="typing-dot" />
-                                      <span className="typing-dot" />
-                                      <span className="typing-dot" />
-                                    </span>
-                                  ) : ""
-                                )}
-                              </div>
-                            )}
-
-                            {/* Generating status */}
-                            {isStreaming && (
-                              <div className="flex items-center gap-1.5 mt-2 text-muted-foreground text-xs">
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                {anyToolRunning
-                                  ? `Using ${msg.tools!.find((t) => t.status === "running")?.name}…`
-                                  : hideStreamingCode
-                                    ? "Building your itinerary…"
-                                    : "Generating…"}
-                              </div>
+                              <div className="whitespace-pre-wrap break-words">{msg.content}</div>
                             )}
                           </div>
                         )}
