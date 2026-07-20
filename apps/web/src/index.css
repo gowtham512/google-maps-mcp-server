@@ -118,6 +118,17 @@ body {
 
 /* ─── Utility animation classes ─────────────────────────────────────────── */
 
+/* Entrance for custom OpenUI components (gated by useIsStreaming so it only
+   plays once the stream finishes — see travelComponents.tsx). */
+@keyframes openui-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.openui-enter { animation: openui-enter 0.35s cubic-bezier(0.16,1,0.3,1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .openui-enter { animation: none; }
+}
+
 .animate-float       { animation: float 6s ease-in-out infinite; }
 .animate-float-slow  { animation: float-slow 8s ease-in-out infinite; }
 .animate-drift       { animation: drift 20s ease-in-out infinite; }

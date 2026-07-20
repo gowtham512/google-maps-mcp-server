@@ -67,6 +67,9 @@ class AuthResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logging.getLogger("travel_agent").info(
+        "Using Ollama model '%s' at %s", settings.ollama_model, settings.ollama_base_url
+    )
     await init_db()
     await migrate_db()
     yield

@@ -123,6 +123,14 @@ TagBlock(tags: string[]) — tags is an array of strings
 Tag(text: string, icon?: string, size?: "sm" | "md" | "lg", variant?: "neutral" | "info" | "success" | "warning" | "danger") — Styled tag/badge with optional icon and variant
 - Color-mapped Tag: Tag(value, null, "sm", value == "high" ? "danger" : value == "medium" ? "warning" : "neutral")
 
+### Other
+WeatherCard(location: string, temperature: string, condition: string, high?: string, low?: string, icon?: string) — A weather summary card for a location. Use this to present output from the get_weather tool instead of plain text.
+PlaceCard(name: string, description?: string, imageUrl?: string, rating?: string, category?: string, address?: string) — A rich card for a single place / point of interest (from search_places or get_place_details). Put a photo URL in imageUrl when available.
+ItineraryDay(title: string, items: string[], subtitle?: string) — One day of a multi-day itinerary: a titled card with a vertical timeline of stops/activities. Use one ItineraryDay per day.
+RouteSummary(origin: string, destination: string, distance?: string, duration?: string, mode?: string) — A compact summary of a route between two places (from compute_route or compute_route_with_waypoints): origin → destination with distance/duration.
+TravelTip(title: string, text: string, variant?: "info" | "tip" | "warning" | "success") — A highlighted callout for tips, advisories, best-time-to-visit, or packing notes. variant controls the color/icon.
+PhotoStrip(images: string[], caption?: string) — A horizontally scrollable strip of photos (e.g. multiple photo URLs from get_place_details). Broken images are hidden automatically.
+
 ## Action — Button Behavior
 
 Action([@steps...]) wires button clicks to operations. Steps are @-prefixed built-in actions. Steps execute in order.
@@ -194,6 +202,19 @@ tabVue = TabItem("vue", "Vue", vueContent)
 reactContent = [TextContent("React is a library by Meta for building UIs."), Callout("info", "Note", "React uses JSX syntax.")]
 vueContent = [TextContent("Vue is a progressive framework by Evan You."), Callout("success", "Tip", "Vue has a gentle learning curve.")]
 
+root = Stack([w])
+w = WeatherCard("Pune, India", "28°C", "Partly cloudy", "31°C", "22°C", "⛅")
+
+root = Stack([intro, d1, d2])
+intro = TextContent("A 2-day Pune getaway", "large-heavy")
+d1 = ItineraryDay("Day 1: Pune → Lonavala", ["Visit Tiger Point", "Explore Karla Caves", "Sunset at Bhushi Dam"], "Scenic hill drive")
+d2 = ItineraryDay("Day 2: Lonavala → Pune", ["Della Adventure Park", "Return drive to Pune"])
+
+root = Stack([p, r, tip])
+p = PlaceCard("Shaniwar Wada", "Historic fortification in the heart of Pune.", null, "4.3", "Historical landmark", "Shaniwar Peth, Pune")
+r = RouteSummary("Pune", "Lonavala", "64 km", "1 hr 30 min", "Drive")
+tip = TravelTip("Best time to visit", "October to March offers the most pleasant weather.", "tip")
+
 ## Important Rules
 - When asked about data, generate realistic/plausible data
 - Choose components that best represent the content (tables for comparisons, charts for trends, forms for input, etc.)
@@ -211,3 +232,11 @@ Before finishing, walk your output and verify:
 - Multi-query refresh: Action([@Run(mutation), @Run(query1), @Run(query2), @Reset(...)])
 - $variables are reactive: changing via Select or @Set re-evaluates all Queries and expressions referencing them
 - Use existing components (Tabs, Accordion, Modal) before inventing ternary show/hide patterns
+- Prefer the custom travel components over generic Card/TextContent when the content fits them:
+- - Use WeatherCard for weather from get_weather (location, temperature, condition, and optional high/low/icon).
+- - Use PlaceCard for a single place from search_places/get_place_details; put its photo URL in imageUrl and rating/category/address when known.
+- - Use ItineraryDay for each day of a multi-day trip: a title like 'Day 1: A → B' and items as the ordered list of stops/activities.
+- - Use RouteSummary for a computed route: origin, destination, and optional distance/duration/mode.
+- - Use TravelTip for advisories, best-time-to-visit, safety, or packing notes; set variant to info | tip | warning | success.
+- - Use PhotoStrip to show several photo URLs of a place.
+- Compose multiple cards vertically in the root Stack. For wide layouts, nest Stacks with direction 'row' and wrap=true so cards flow responsively.
